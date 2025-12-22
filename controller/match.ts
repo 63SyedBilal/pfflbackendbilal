@@ -287,12 +287,15 @@ export async function createMatch(req: NextRequest) {
  * Get all matches (with optional filters)
  * GET /api/match?leagueId=:id&status=upcoming
  */
+
+
 export async function getAllMatches(req: NextRequest) {
   try {
     console.log("🔵 getAllMatches called");
     await connectDB();
     console.log("✅ Database connected");
     
+    // Verify the user
     try {
       await verifyUser(req);
       console.log("✅ User verified");
@@ -301,6 +304,7 @@ export async function getAllMatches(req: NextRequest) {
       return NextResponse.json({ error: authError.message || "Authentication failed" }, { status: 401 });
     }
 
+    // Extract query params
     const { searchParams } = new URL(req.url);
     const leagueId = searchParams.get("leagueId");
     const status = searchParams.get("status");
@@ -322,106 +326,50 @@ export async function getAllMatches(req: NextRequest) {
       }
       query.status = status;
     }
-    
+
     console.log("🔍 Query:", JSON.stringify(query));
 
-<<<<<<< Updated upstream
-    let matches;
-    try {
-      console.log("🔍 Fetching matches from database...");
-      // Try with full populate, but catch errors gracefully
-      matches = await Match.find(query)
-=======
-    // Fetch matches with populate, fallback to without populate if needed
+    // Fetch matches from database
     console.log("🔍 Fetching matches from database...");
     let matches: any[] = [];
-    
+
     try {
-      // First try with populate, but catch errors gracefully
-      const populatedMatches = await Match.find(query)
->>>>>>> Stashed changes
+      matches = await Match.find(query)
         .populate("leagueId", "leagueName format startDate endDate logo")
         .populate("createdBy", "firstName lastName email role")
         .populate("teamA.teamId", "teamName enterCode image")
         .populate("teamB.teamId", "teamName enterCode image")
         .populate("teamA.attendance.playerId", "firstName lastName email")
         .populate("teamB.attendance.playerId", "firstName lastName email")
-        .populate("teamA.activePlayers", "firstName lastName email")
-        .populate("teamB.activePlayers", "firstName lastName email")
-        .populate("teamA.playerPoints.playerId", "firstName lastName email")
-        .populate("teamB.playerPoints.playerId", "firstName lastName email")
         .populate("refereeId", "firstName lastName email role")
         .populate("statKeeperId", "firstName lastName email role")
         .populate("gameWinnerTeam", "teamName enterCode")
         .sort({ gameDate: 1, gameTime: 1 })
         .lean()
         .exec();
-      matches = populatedMatches;
+
       console.log(`✅ Found ${matches.length} matches`);
     } catch (populateError: any) {
       console.error("❌ Error in populate:", populateError);
-      console.error("Error message:", populateError.message);
-      console.error("Error stack:", populateError.stack);
-      // If populate fails, try without populate - this is safe for missing references
-<<<<<<< Updated upstream
-      try {
-        console.log("🔄 Retrying without populate (references might not exist)...");
-        matches = await Match.find(query)
-          .sort({ gameDate: 1, gameTime: 1 })
-          .lean()
-          .exec();
-        console.log(`✅ Found ${matches.length} matches (without populate)`);
-      } catch (findError: any) {
-        console.error("❌ Error in find:", findError);
-        console.error("Find error stack:", findError.stack);
-        throw findError;
-      }
-=======
-      console.log("🔄 Retrying without populate (teams might not exist)...");
-      const unpopulatedMatches = await Match.find(query)
+      console.log("🔄 Retrying without populate...");
+      matches = await Match.find(query)
         .sort({ gameDate: 1, gameTime: 1 })
         .lean()
         .exec();
-      matches = unpopulatedMatches;
       console.log(`✅ Found ${matches.length} matches (without populate)`);
->>>>>>> Stashed changes
     }
 
-    // If team populate failed (team doesn't exist), include the original ObjectId
-    const matchesWithTeamIds = matches.map((match: any) => {
-      // Handle teamA
-      if (!match.teamA || (match.teamA && typeof match.teamA === 'object' && !match.teamA.teamName)) {
-        // Team populate failed, use original ObjectId
-        const teamAId = match.teamA?._id?.toString() || match.teamA?.toString() || match.teamA;
-        match.teamA = teamAId;
-      }
-      
-      // Handle teamB
-      if (!match.teamB || (match.teamB && typeof match.teamB === 'object' && !match.teamB.teamName)) {
-        // Team populate failed, use original ObjectId
-        const teamBId = match.teamB?._id?.toString() || match.teamB?.toString() || match.teamB;
-        match.teamB = teamBId;
-      }
-      
-      return match;
-    });
-
+    // Return matches
     return NextResponse.json(
       {
         message: "Matches retrieved successfully",
-        data: matchesWithTeamIds,
+        data: matches,
       },
       { status: 200 }
     );
+
   } catch (error: any) {
     console.error("❌ Get matches error:", error);
-    console.error("Error message:", error.message);
-    console.error("Error stack:", error.stack);
-    
-    if (error.message === "No token provided" || error.message === "Invalid token") {
-      return NextResponse.json({ error: error.message }, { status: 401 });
-    }
-    
     return NextResponse.json(
       { 
         error: error.message || "Failed to get matches",
@@ -431,6 +379,7 @@ export async function getAllMatches(req: NextRequest) {
     );
   }
 }
+
 
 /**
  * Get match by ID
