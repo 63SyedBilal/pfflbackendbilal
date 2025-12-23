@@ -88,6 +88,18 @@ export async function createMatch(req: NextRequest) {
       );
     }
 
+    // Extract teamId from teamA and teamB (support both object and string formats)
+    const teamAId = typeof teamA === 'string' ? teamA : (teamA?.teamId || teamA);
+    const teamBId = typeof teamB === 'string' ? teamB : (teamB?.teamId || teamB);
+
+    // Validate team IDs exist
+    if (!teamAId || !teamBId) {
+      return NextResponse.json(
+        { error: "Team A and Team B must have valid teamId" },
+        { status: 400 }
+      );
+    }
+
     // Convert IDs to ObjectId format
     let leagueObjectId: mongoose.Types.ObjectId;
     let teamAObjectId: mongoose.Types.ObjectId;
@@ -96,8 +108,8 @@ export async function createMatch(req: NextRequest) {
 
     try {
       leagueObjectId = toObjectId(leagueId);
-      teamAObjectId = toObjectId(teamA);
-      teamBObjectId = toObjectId(teamB);
+      teamAObjectId = toObjectId(teamAId);
+      teamBObjectId = toObjectId(teamBId);
       createdByObjectId = toObjectId(userId);
     } catch (error: any) {
       return NextResponse.json(
@@ -145,23 +157,26 @@ export async function createMatch(req: NextRequest) {
     }
 
     // Build team match data
+    // Support both object format (with players, playerActions, etc.) and simple format
     const teamAData: any = {
       teamId: teamAObjectId,
       side: teamASide,
-      players: [],
-      playerStats: [],
-      teamStats: {},
-      score: 0,
+      players: (typeof teamA === 'object' && teamA.players) ? teamA.players : [],
+      playerActions: (typeof teamA === 'object' && teamA.playerActions) ? teamA.playerActions : [],
+      playerStats: (typeof teamA === 'object' && teamA.playerStats) ? teamA.playerStats : [],
+      teamStats: (typeof teamA === 'object' && teamA.teamStats) ? teamA.teamStats : {},
+      score: (typeof teamA === 'object' && teamA.score !== undefined) ? teamA.score : 0,
       result: null
     };
 
     const teamBData: any = {
       teamId: teamBObjectId,
       side: teamBSide,
-      players: [],
-      playerStats: [],
-      teamStats: {},
-      score: 0,
+      players: (typeof teamB === 'object' && teamB.players) ? teamB.players : [],
+      playerActions: (typeof teamB === 'object' && teamB.playerActions) ? teamB.playerActions : [],
+      playerStats: (typeof teamB === 'object' && teamB.playerStats) ? teamB.playerStats : [],
+      teamStats: (typeof teamB === 'object' && teamB.teamStats) ? teamB.teamStats : {},
+      score: (typeof teamB === 'object' && teamB.score !== undefined) ? teamB.score : 0,
       result: null
     };
 
