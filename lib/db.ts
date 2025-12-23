@@ -27,6 +27,41 @@ if (!global.mongoose) {
   global.mongoose = cached
 }
 
+// Set up connection event listeners for PM2 logging
+let listenersSetup = false
+
+function setupConnectionListeners() {
+  if (listenersSetup) return
+  listenersSetup = true
+
+  mongoose.connection.on('connected', () => {
+    const dbName = mongoose.connection.db?.databaseName || "unknown"
+    console.log(`[DB] ✅ Connected to MongoDB database: ${dbName}`)
+  })
+
+  mongoose.connection.on('disconnected', () => {
+    console.log(`[DB] ❌ Disconnected from MongoDB`)
+  })
+
+  mongoose.connection.on('error', (error) => {
+    console.error(`[DB] ❌ MongoDB connection error:`, error)
+  })
+
+  mongoose.connection.on('reconnected', () => {
+    const dbName = mongoose.connection.db?.databaseName || "unknown"
+    console.log(`[DB] ✅ Reconnected to MongoDB database: ${dbName}`)
+  })
+
+  mongoose.connection.on('connecting', () => {
+    console.log(`[DB] 🔄 Connecting to MongoDB...`)
+  })
+}
+
+// Setup listeners immediately if connection already exists
+if (mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2) {
+  setupConnectionListeners()
+}
+
 export async function connectDB() {
   console.log("connectDB called")
   
@@ -46,6 +81,9 @@ export async function connectDB() {
 
   if (!cached.promise) {
     console.log("Creating new connection promise")
+    // Setup connection listeners
+    setupConnectionListeners()
+    
     // Ensure database name is in the URI
     let uri = MONGODB_URI
     if (!uri.includes("/pffl") && !uri.includes("?") && !uri.endsWith("/")) {
