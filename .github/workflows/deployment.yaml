@@ -46,6 +46,8 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY_PROD }}
           port: 22
           script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  
             # --- MAIN DEPLOYMENT LOGIC ---
             # Update this path to your production folder
             cd /home/ubuntu/pfflbackendbilal
