@@ -21,6 +21,10 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY_STAGING }}
           port: 22
           script: |
+            # --- 1. Load NVM (Node Version Manager) ---
+            # This is required because non-interactive SSH doesn't load .bashrc automatically
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             cd /home/ubuntu/pfflbackendbilal
             git pull origin staging
             npm install --save-dev typescript @types/react @types/node
