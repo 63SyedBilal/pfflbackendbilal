@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { User } from "@/modules";
 import { generateAccessToken, verifyAccessToken } from "@/lib/jwt";
+import { uploadToCloudinary } from "@/lib/cloudinary";
 
 // Helper to get token from request
 function getToken(req: NextRequest): string | null {
@@ -284,3 +285,68 @@ export async function deleteUser(req: NextRequest, { params }: { params: { id: s
   }
 }
 
+
+/**
+ * Upload user profile image
+ * POST /api/user/upload-image
+ * Body: FormData with "file"
+ */
+export async function uploadUserImage(req: NextRequest) {
+  try {
+    await connectDB();
+    const decoded = await verifyUser(req);
+
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
+
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    // Convert File to Buffer
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(buffer, {
+      folder: "pffl/users",
+      resource_type: "image",
+    });
+
+    // Update user profile image
+    const user = await User.findByIdAndUpdate(
+      decoded.userId,
+      { profileImage: result.secure_url },
+      { new: true }
+    ).select("-password");
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(
+      {
+        message: "Profile image uploaded successfully",
+        data: {
+          imageUrl: result.secure_url,
+          user: {
+            _id: user._id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phone: user.phone,
+            role: user.role,
+            profileImage: user.profileImage
+          }
+        },
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    if (error.message === "No token provided" || error.message === "Invalid token") {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    console.error("Upload error:", error);
+    return NextResponse.json({ error: error.message || "Failed to upload image" }, { status: 500 });
+  }
+}

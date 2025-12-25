@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/db";
 import { User } from "@/modules";
 import { verifyAccessToken } from "@/lib/jwt";
 import { hashPassword } from "@/lib/auth";
+import { uploadImageToCloudinary } from "@/lib/cloudinary";
 
 /**
  * Complete user profile - update existing user with profile details
@@ -74,8 +75,19 @@ export async function completeProfile(req: NextRequest) {
     }
 
     // Update profile fields (stored directly in User)
-    if (profileImage !== undefined) {
-      user.profileImage = profileImage;
+    if (profileImage !== undefined && profileImage !== null && profileImage !== "") {
+      try {
+        user.profileImage = await uploadImageToCloudinary(profileImage, {
+          folder: "pffl/users",
+          resource_type: "image",
+        });
+      } catch (uploadError: any) {
+        console.error("❌ Failed to upload profile image to Cloudinary:", uploadError);
+        return NextResponse.json(
+          { error: `Failed to upload image: ${uploadError.message}` },
+          { status: 500 }
+        );
+      }
     }
     
     if (position !== undefined) {

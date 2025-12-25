@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { Profile } from "@/modules";
 import { verifyAccessToken } from "@/lib/jwt";
+import { uploadImageToCloudinary } from "@/lib/cloudinary";
 
 // Helper to get token from request
 function getToken(req: NextRequest): string | null {
@@ -39,6 +40,23 @@ export async function createProfile(req: NextRequest) {
       return NextResponse.json({ error: "Profile already exists" }, { status: 409 });
     }
 
+    // Handle image upload - supports base64, regular URLs, and Cloudinary URLs
+    let imageUrl = image || "";
+    if (image && typeof image === "string" && image.trim() !== "") {
+      try {
+        imageUrl = await uploadImageToCloudinary(image, {
+          folder: "pffl/profiles",
+          resource_type: "image",
+        });
+      } catch (uploadError: any) {
+        console.error("❌ Failed to upload profile image to Cloudinary:", uploadError);
+        return NextResponse.json(
+          { error: `Failed to upload image: ${uploadError.message}` },
+          { status: 500 }
+        );
+      }
+    }
+
     const profileData: any = {
       userId: decoded.userId,
       yearOfExperience: yearOfExperience || 0,
@@ -46,7 +64,7 @@ export async function createProfile(req: NextRequest) {
       jerseyNumber: jerseyNumber || null,
       emergencyNumber: emergencyNumber,
       emergencyPhoneNumber: emergencyPhoneNumber,
-      image: image || "",
+      image: imageUrl,
       paymentStatus: paymentStatus || "unpaid",
     };
 
@@ -174,8 +192,19 @@ export async function updateProfile(req: NextRequest, { params }: { params: { id
       profile.emergencyPhoneNumber = emergencyPhoneNumber;
     }
 
-    if (image !== undefined) {
-      profile.image = image;
+    if (image !== undefined && image !== null && image !== "") {
+      try {
+        profile.image = await uploadImageToCloudinary(image, {
+          folder: "pffl/profiles",
+          resource_type: "image",
+        });
+      } catch (uploadError: any) {
+        console.error("❌ Failed to upload profile image to Cloudinary:", uploadError);
+        return NextResponse.json(
+          { error: `Failed to upload image: ${uploadError.message}` },
+          { status: 500 }
+        );
+      }
     }
 
     if (paymentStatus !== undefined) {

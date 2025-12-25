@@ -1,12 +1,9 @@
 import mongoose from "mongoose"
 
-// Try multiple connection strings
-const MONGODB_URI = process.env.MONGODB_URI || 
-  "mongodb://localhost:27017/pffl" ||
-  "mongodb://127.0.0.1:27017/pffl" ||
-  "mongodb+srv://zubairhashmi423_db_user:zubairkhann123@cluster0.ikrhunq.mongodb.net/pffl?retryWrites=true&w=majority"
+// Get MongoDB URI from environment variable or use fallback
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://zubairhashmi423_db_user:zubairkhann123@cluster0.ikrhunq.mongodb.net/"
 
-console.log("Attempting to connect to MongoDB with URI:", MONGODB_URI)
+console.log("Attempting to connect to MongoDB with URI:", MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, "//***:***@"))
 
 if (!MONGODB_URI) {
   throw new Error("Please define MONGODB_URI in .env.local")
@@ -84,17 +81,11 @@ export async function connectDB() {
     // Setup connection listeners
     setupConnectionListeners()
     
-    // Ensure database name is in the URI
-    let uri = MONGODB_URI
-    if (!uri.includes("/pffl") && !uri.includes("?") && !uri.endsWith("/")) {
-      uri = uri.replace(/\/$/, "") + "/pffl?retryWrites=true&w=majority"
-    } else if (!uri.includes("/pffl") && uri.includes("?")) {
-      uri = uri.replace(/\?/, "/pffl?")
-    } else if (!uri.includes("/pffl") && uri.endsWith("/")) {
-      uri = uri + "pffl?retryWrites=true&w=majority"
-    }
+    // Use the URI as-is - mongoose will use dbName option to connect to correct database
+    // This prevents URI duplication issues
+    const uri = MONGODB_URI.trim()
 
-    console.log("Connecting to MongoDB with URI:", uri)
+    console.log("Connecting to MongoDB with URI:", uri.replace(/\/\/[^:]+:[^@]+@/, "//***:***@")) // Hide credentials in logs
     
     cached.promise = mongoose.connect(uri, {
       dbName: "pffl", // Explicitly set database name

@@ -4,6 +4,7 @@ import { League, User, Team, Notification } from "@/modules";
 import { verifyAccessToken } from "@/lib/jwt";
 import mongoose from "mongoose";
 import { initializeLeaderboard, addTeamToLeaderboard } from "./leaderboard";
+import { uploadToCloudinary, uploadImageToCloudinary } from "@/lib/cloudinary";
 
 // Helper to convert string ID to ObjectId
 function toObjectId(id: string | mongoose.Types.ObjectId): mongoose.Types.ObjectId {
@@ -23,7 +24,7 @@ function getToken(req: NextRequest): string | null {
 async function verifyUser(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-  
+
   const decoded = verifyAccessToken(token);
   return decoded;
 }
@@ -32,10 +33,10 @@ async function verifyUser(req: NextRequest) {
 async function verifyAdmin(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-  
+
   const decoded = verifyAccessToken(token);
   if (decoded.role !== "superadmin") throw new Error("Unauthorized");
-  
+
   return decoded;
 }
 
@@ -47,15 +48,15 @@ export async function createLeague(req: NextRequest) {
   try {
     await connectDB();
     await verifyAdmin(req);
-    
-    const { 
-      leagueName, 
-      logo, 
-      format, 
-      startDate, 
-      endDate, 
-      minimumPlayers, 
-      entryFeeType, 
+
+    const {
+      leagueName,
+      logo,
+      format,
+      startDate,
+      endDate,
+      minimumPlayers,
+      entryFeeType,
       perPlayerLeagueFee,
       referee,
       statKeeper,
@@ -84,7 +85,7 @@ export async function createLeague(req: NextRequest) {
     // Validate dates
     const start = new Date(startDate);
     const end = new Date(endDate);
-    
+
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       return NextResponse.json({ error: "Invalid date format" }, { status: 400 });
     }
@@ -106,6 +107,23 @@ export async function createLeague(req: NextRequest) {
       return NextResponse.json({ error: "Status must be either 'active' or 'pending'" }, { status: 400 });
     }
 
+    // Handle logo upload - supports base64, regular URLs, and Cloudinary URLs
+    let logoUrl = logo || "";
+    if (logo && typeof logo === "string" && logo.trim() !== "") {
+      try {
+        logoUrl = await uploadImageToCloudinary(logo, {
+          folder: "pffl/leagues",
+          resource_type: "image",
+        });
+      } catch (uploadError: any) {
+        console.error("❌ Failed to upload league logo to Cloudinary:", uploadError);
+        return NextResponse.json(
+          { error: `Failed to upload logo: ${uploadError.message}` },
+          { status: 500 }
+        );
+      }
+    }
+
     const leagueData: any = {
       leagueName: leagueName.trim(),
       format,
@@ -114,7 +132,7 @@ export async function createLeague(req: NextRequest) {
       minimumPlayers,
       entryFeeType,
       perPlayerLeagueFee: perPlayerLeagueFee || 0,
-      logo: logo || "",
+      logo: logoUrl,
       status: status || "pending",
       referees: [],
       statKeepers: [],
@@ -174,7 +192,7 @@ export async function getAllLeagues(req: NextRequest) {
     const format = searchParams.get("format");
 
     let query: any = {};
-    
+
     if (status) {
       if (!["active", "pending"].includes(status)) {
         return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
@@ -201,10 +219,10 @@ export async function getAllLeagues(req: NextRequest) {
     const leaguesWithStatus = leagues.map((league: any) => {
       const leagueObj = league.toObject();
       const startDate = new Date(leagueObj.startDate);
-      
+
       // If start date has passed, set to active, otherwise pending
       leagueObj.status = startDate <= currentDate ? "active" : "pending";
-      
+
       return leagueObj;
     });
 
@@ -248,7 +266,7 @@ export async function getLeague(req: NextRequest, { params }: { params: { id: st
     const leagueObj = (league as any).toObject();
     const currentDate = new Date();
     const startDate = new Date(leagueObj.startDate);
-    
+
     // If start date has passed, set to active, otherwise pending
     leagueObj.status = startDate <= currentDate ? "active" : "pending";
 
@@ -300,8 +318,19 @@ export async function updateLeague(req: NextRequest, { params }: { params: { id:
       (league as any).leagueName = leagueName.trim();
     }
 
-    if (logo !== undefined) {
-      (league as any).logo = logo;
+    if (logo !== undefined && logo !== null && logo !== "") {
+      try {
+        (league as any).logo = await uploadImageToCloudinary(logo, {
+          folder: "pffl/leagues",
+          resource_type: "image",
+        });
+      } catch (uploadError: any) {
+        console.error("❌ Failed to upload league logo to Cloudinary:", uploadError);
+        return NextResponse.json(
+          { error: `Failed to upload logo: ${uploadError.message}` },
+          { status: 500 }
+        );
+      }
     }
 
     if (format !== undefined) {
@@ -444,7 +473,7 @@ export async function addTeamToLeague(req: NextRequest, { params }: { params: { 
     }
 
     const teams = (league as any).teams || [];
-    
+
     // Check if team is already in the league
     if (teams.some((t: any) => t.toString() === teamId)) {
       return NextResponse.json({ error: "Team already in league" }, { status: 409 });
@@ -500,7 +529,7 @@ export async function removeTeamFromLeague(req: NextRequest, { params }: { param
     }
 
     const teams = (league as any).teams || [];
-    
+
     // Check if team is in the league
     if (!teams.some((t: any) => t.toString() === teamId)) {
       return NextResponse.json({ error: "Team not in league" }, { status: 404 });
@@ -736,7 +765,7 @@ export async function inviteStatKeeperToLeague(req: NextRequest, { params }: { p
       league: leagueId.toString(),
       type: "LEAGUE_STATKEEPER_INVITE"
     });
-    
+
     // Verify notification was saved correctly
     const savedNotification = await Notification.findById(notification._id);
     console.log("Saved notification:", {
@@ -876,3 +905,62 @@ export async function inviteTeamToLeague(req: NextRequest, { params }: { params:
   }
 }
 
+
+/**
+ * Upload league logo
+ * POST /api/league/:id/upload-logo
+ */
+export async function uploadLeagueLogo(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await connectDB();
+    await verifyAdmin(req);
+
+    const { id } = params;
+    const leagueId = toObjectId(id);
+
+    const league = await League.findById(leagueId);
+    if (!league) {
+      return NextResponse.json({ error: "League not found" }, { status: 404 });
+    }
+
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
+
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    // Convert File to Buffer
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(buffer, {
+      folder: "pffl/leagues",
+      resource_type: "image",
+    });
+
+    // Update league logo
+    (league as any).logo = result.secure_url;
+    await league.save();
+
+    const populatedLeague = await League.findById(leagueId)
+      .populate("referees", "firstName lastName email role")
+      .populate("statKeepers", "firstName lastName email role")
+      .populate("teams", "teamName enterCode location skillLevel");
+
+    return NextResponse.json(
+      {
+        message: "League logo uploaded successfully",
+        data: populatedLeague,
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    if (error.message === "No token provided" || error.message === "Invalid token" || error.message === "Unauthorized") {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    console.error("Upload error:", error);
+    return NextResponse.json({ error: error.message || "Failed to upload logo" }, { status: 500 });
+  }
+}
