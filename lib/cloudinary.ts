@@ -232,6 +232,84 @@ export async function uploadMultipleToCloudinary(
   return Promise.all(uploadPromises)
 }
 
+/**
+ * Upload image from URL or base64 to Cloudinary
+ * Handles base64 data URLs, regular URLs, and Cloudinary URLs
+ * @param imageData - Base64 data URL, regular URL, or Cloudinary URL
+ * @param options - Upload options
+ * @returns Cloudinary secure URL
+ */
+export async function uploadImageToCloudinary(
+  imageData: string,
+  options: UploadOptions = {}
+): Promise<string> {
+  // If already a Cloudinary URL, return as-is
+  if (imageData.includes("res.cloudinary.com") || imageData.includes("cloudinary.com")) {
+    console.log("📝 Image is already a Cloudinary URL, using as-is");
+    return imageData;
+  }
+
+  // If it's a base64 data URL
+  if (imageData.startsWith("data:image/")) {
+    try {
+      console.log("📤 Uploading image from base64 to Cloudinary...");
+      const base64Data = imageData.split(",")[1];
+      if (!base64Data) {
+        throw new Error("Invalid base64 image data");
+      }
+      
+      const buffer = Buffer.from(base64Data, "base64");
+      const result = await uploadToCloudinary(buffer, options);
+      console.log("✅ Image uploaded to Cloudinary from base64:", result.secure_url);
+      return result.secure_url;
+    } catch (error: any) {
+      console.error("❌ Failed to upload base64 image to Cloudinary:", error);
+      throw new Error(`Failed to upload base64 image: ${error.message}`);
+    }
+  }
+
+  // If it's a regular URL (http/https), upload it to Cloudinary
+  if (imageData.startsWith("http://") || imageData.startsWith("https://")) {
+    try {
+      console.log("📥 Downloading image from URL and uploading to Cloudinary...", imageData);
+      
+      // Cloudinary can fetch from URL directly
+      validateCloudinaryConfig();
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
+        api_key: process.env.CLOUDINARY_API_KEY!,
+        api_secret: process.env.CLOUDINARY_API_SECRET!,
+        secure: true,
+      });
+
+      const uploadOptions: Record<string, any> = {
+        folder: options.folder || "pffl",
+        overwrite: true,
+        resource_type: options.resource_type || "image",
+        use_filename: true,
+        unique_filename: true,
+      };
+
+      // Upload from URL - Cloudinary will fetch it
+      const result = await cloudinary.uploader.upload(imageData, uploadOptions);
+      console.log("✅ Image uploaded to Cloudinary from URL:", result.secure_url);
+      return result.secure_url;
+    } catch (error: any) {
+      console.error("❌ Failed to upload image from URL to Cloudinary:", error);
+      throw new Error(`Failed to upload image from URL: ${error.message}`);
+    }
+  }
+
+  // If it's empty or invalid, return empty string
+  if (!imageData || imageData.trim() === "") {
+    return "";
+  }
+
+  // Unknown format, return as-is (might be a relative path or other format)
+  console.warn("⚠️ Unknown image format, using as-is:", imageData);
+  return imageData;
+}
+
 
 
 

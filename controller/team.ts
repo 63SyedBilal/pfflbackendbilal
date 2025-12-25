@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import { Team, User } from "@/modules";
 import { verifyAccessToken } from "@/lib/jwt";
+import { uploadToCloudinary, uploadImageToCloudinary } from "@/lib/cloudinary";
 
 // Helper to get token from request
 function getToken(req: NextRequest): string | null {
@@ -13,7 +14,7 @@ function getToken(req: NextRequest): string | null {
 async function verifyUser(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-  
+
   const decoded = verifyAccessToken(token);
   return decoded;
 }
@@ -26,7 +27,7 @@ export async function createTeam(req: NextRequest) {
   try {
     await connectDB();
     const decoded = await verifyUser(req);
-    
+
     const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = await req.json();
 
     // Verify user is a captain
@@ -72,11 +73,11 @@ export async function createTeam(req: NextRequest) {
 
     // Validate squad5v5 if provided
     if (squad5v5 && Array.isArray(squad5v5) && squad5v5.length > 0) {
-      const validPlayers = await User.find({ 
+      const validPlayers = await User.find({
         _id: { $in: squad5v5 },
         role: "player"
       });
-      
+
       if (validPlayers.length !== squad5v5.length) {
         return NextResponse.json({ error: "Some player IDs in squad5v5 are invalid" }, { status: 400 });
       }
@@ -84,11 +85,11 @@ export async function createTeam(req: NextRequest) {
 
     // Validate squad7v7 if provided
     if (squad7v7 && Array.isArray(squad7v7) && squad7v7.length > 0) {
-      const validPlayers = await User.find({ 
+      const validPlayers = await User.find({
         _id: { $in: squad7v7 },
         role: "player"
       });
-      
+
       if (validPlayers.length !== squad7v7.length) {
         return NextResponse.json({ error: "Some player IDs in squad7v7 are invalid" }, { status: 400 });
       }
@@ -98,12 +99,29 @@ export async function createTeam(req: NextRequest) {
       return NextResponse.json({ error: "Team name and location are required" }, { status: 400 });
     }
 
+    // Handle image upload - supports base64, regular URLs, and Cloudinary URLs
+    let imageUrl = image || "";
+    if (image && typeof image === "string" && image.trim() !== "") {
+      try {
+        imageUrl = await uploadImageToCloudinary(image, {
+          folder: "pffl/teams",
+          resource_type: "image",
+        });
+      } catch (uploadError: any) {
+        console.error("❌ Failed to upload team image to Cloudinary:", uploadError);
+        return NextResponse.json(
+          { error: `Failed to upload image: ${uploadError.message}` },
+          { status: 500 }
+        );
+      }
+    }
+
     const teamData: any = {
       teamName: teamName.trim(),
       enterCode: finalEnterCode,
       location: location.trim(),
       skillLevel: skillLevel || "beginner",
-      image: image || "",
+      image: imageUrl,
       captain: decoded.userId,
       squad5v5: squad5v5 && Array.isArray(squad5v5) ? squad5v5 : [],
       squad7v7: squad7v7 && Array.isArray(squad7v7) ? squad7v7 : [],
@@ -228,13 +246,13 @@ export async function getAllTeams(req: NextRequest) {
 
     let query: any = {};
     let singleTeam = false;
-    
+
     // If captainId is provided, get team for that captain
     if (captainId) {
       query.captain = captainId;
       singleTeam = true;
     }
-    
+
     // If playerId is provided, get team where player is in either squad
     if (playerId) {
       query.$or = [
@@ -307,9 +325,9 @@ export async function updateTeam(req: NextRequest, { params }: { params: { id: s
 
     if (enterCode !== undefined) {
       // Check if enterCode already exists (excluding current team)
-      const existingCode = await Team.findOne({ 
-        enterCode: enterCode.trim(), 
-        _id: { $ne: id } 
+      const existingCode = await Team.findOne({
+        enterCode: enterCode.trim(),
+        _id: { $ne: id }
       });
       if (existingCode) {
         return NextResponse.json({ error: "Enter code already exists" }, { status: 409 });
@@ -328,22 +346,33 @@ export async function updateTeam(req: NextRequest, { params }: { params: { id: s
       team.skillLevel = skillLevel;
     }
 
-    if (image !== undefined) {
-      team.image = image;
+    if (image !== undefined && image !== null && image !== "") {
+      try {
+        team.image = await uploadImageToCloudinary(image, {
+          folder: "pffl/teams",
+          resource_type: "image",
+        });
+      } catch (uploadError: any) {
+        console.error("❌ Failed to upload team image to Cloudinary:", uploadError);
+        return NextResponse.json(
+          { error: `Failed to upload image: ${uploadError.message}` },
+          { status: 500 }
+        );
+      }
     }
 
     if (squad5v5 !== undefined) {
       if (Array.isArray(squad5v5)) {
         // Validate all players exist and have player role
-        const validPlayers = await User.find({ 
+        const validPlayers = await User.find({
           _id: { $in: squad5v5 },
           role: "player"
         });
-        
+
         if (validPlayers.length !== squad5v5.length) {
           return NextResponse.json({ error: "Some player IDs in squad5v5 are invalid" }, { status: 400 });
         }
-        
+
         (team as any).squad5v5 = squad5v5;
       }
     }
@@ -351,15 +380,15 @@ export async function updateTeam(req: NextRequest, { params }: { params: { id: s
     if (squad7v7 !== undefined) {
       if (Array.isArray(squad7v7)) {
         // Validate all players exist and have player role
-        const validPlayers = await User.find({ 
+        const validPlayers = await User.find({
           _id: { $in: squad7v7 },
           role: "player"
         });
-        
+
         if (validPlayers.length !== squad7v7.length) {
           return NextResponse.json({ error: "Some player IDs in squad7v7 are invalid" }, { status: 400 });
         }
-        
+
         (team as any).squad7v7 = squad7v7;
       }
     }
@@ -534,7 +563,7 @@ export async function removePlayer(req: NextRequest, { params }: { params: { id:
     (team as any)[squadField] = squad.filter(
       (p: any) => p.toString() !== playerId
     );
-    
+
     await team.save();
 
     await team.populate("captain", "firstName lastName email role");
@@ -557,3 +586,69 @@ export async function removePlayer(req: NextRequest, { params }: { params: { id:
   }
 }
 
+
+/**
+ * Upload team image
+ * POST /api/team/:id/upload-image
+ */
+export async function uploadTeamImage(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await connectDB();
+    const decoded = await verifyUser(req);
+
+    const { id } = params;
+
+    const team = await Team.findById(id);
+    if (!team) {
+      return NextResponse.json({ error: "Team not found" }, { status: 404 });
+    }
+
+    // Verify user is the captain
+    if (team.captain.toString() !== decoded.userId) {
+      return NextResponse.json({ error: "Unauthorized. Only captain can update team image" }, { status: 403 });
+    }
+
+    const formData = await req.formData();
+    const file = formData.get("file") as File;
+
+    if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    // Convert File to Buffer
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(buffer, {
+      folder: "pffl/teams",
+      resource_type: "image",
+    });
+
+    // Update team image
+    team.image = result.secure_url;
+    await team.save();
+
+    await team.populate("captain", "firstName lastName email role");
+    await team.populate("squad5v5", "firstName lastName email role");
+    await team.populate("squad7v7", "firstName lastName email role");
+    await team.populate("players", "firstName lastName email role");
+
+    return NextResponse.json(
+      {
+        message: "Team image uploaded successfully",
+        data: {
+          imageUrl: result.secure_url,
+          team: team
+        },
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    if (error.message === "No token provided" || error.message === "Invalid token") {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    console.error("Upload error:", error);
+    return NextResponse.json({ error: error.message || "Failed to upload image" }, { status: 500 });
+  }
+}
