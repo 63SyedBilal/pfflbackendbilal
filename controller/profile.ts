@@ -14,7 +14,7 @@ function getToken(req: NextRequest): string | null {
 async function verifyUser(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-  
+
   const decoded = verifyAccessToken(token);
   return decoded;
 }
@@ -27,8 +27,9 @@ export async function createProfile(req: NextRequest) {
   try {
     await connectDB();
     const decoded = await verifyUser(req);
-    
-    const { yearOfExperience, position, jerseyNumber, emergencyNumber, emergencyPhoneNumber, image, paymentStatus } = await req.json();
+
+    const body: any = await req.json();
+    const { yearOfExperience, position, jerseyNumber, emergencyNumber, emergencyPhoneNumber, image, paymentStatus } = body;
 
     if (!emergencyNumber || !emergencyPhoneNumber) {
       return NextResponse.json({ error: "Emergency number and phone number are required" }, { status: 400 });
@@ -165,7 +166,8 @@ export async function updateProfile(req: NextRequest, { params }: { params: { id
     await verifyUser(req);
 
     const { id } = params;
-    const { yearOfExperience, position, jerseyNumber, emergencyNumber, emergencyPhoneNumber, image, paymentStatus } = await req.json();
+    const body: any = await req.json();
+    const { yearOfExperience, position, jerseyNumber, emergencyNumber, emergencyPhoneNumber, image, paymentStatus } = body;
 
     const profile = await Profile.findById(id);
     if (!profile) {

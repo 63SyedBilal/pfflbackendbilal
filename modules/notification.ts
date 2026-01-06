@@ -31,12 +31,28 @@ const NotificationSchema = new mongoose.Schema(
 
     type: {
       type: String,
-
-      enum: ["TEAM_INVITE", "LEAGUE_REFEREE_INVITE", "LEAGUE_STATKEEPER_INVITE", "LEAGUE_TEAM_INVITE", "GAME_ASSIGNED"],
-
-      enum: ["TEAM_INVITE", "LEAGUE_REFEREE_INVITE", "LEAGUE_STATKEEPER_INVITE", "LEAGUE_TEAM_INVITE", "INVITE_ACCEPTED_REFEREE", "INVITE_ACCEPTED_STATKEEPER", "INVITE_ACCEPTED_TEAM"],
-
+      enum: [
+        "TEAM_INVITE",
+        "LEAGUE_REFEREE_INVITE",
+        "LEAGUE_STATKEEPER_INVITE",
+        "LEAGUE_TEAM_INVITE",
+        "GAME_ASSIGNED",
+        "INVITE_ACCEPTED_REFEREE",
+        "INVITE_ACCEPTED_STATKEEPER",
+        "INVITE_ACCEPTED_TEAM",
+        "PAYMENT_COMPLETED",
+        "STATS_SUBMITTED",
+        "STATS_APPROVED",
+        "STATS_REJECTED",
+        "SYSTEM_ALERT",
+        "MESSAGE"
+      ],
       default: "TEAM_INVITE"
+    },
+
+    message: {
+      type: String,
+      default: ""
     },
 
     status: {
@@ -53,8 +69,12 @@ const NotificationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Prevent model overwrite error in Next.js development
-const Notification = mongoose.models.Notification || mongoose.model("Notification", NotificationSchema);
+// Force delete the model from mongoose if it exists to ensure schema updates are applied
+if (mongoose.models.Notification) {
+  delete mongoose.models.Notification;
+}
+
+const Notification = mongoose.model("Notification", NotificationSchema);
 
 export default Notification;
 
