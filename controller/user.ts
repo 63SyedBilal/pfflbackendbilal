@@ -14,7 +14,7 @@ function getToken(req: NextRequest): string | null {
 async function verifyUser(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-
+  
   const decoded = verifyAccessToken(token);
   return decoded;
 }
@@ -26,15 +26,14 @@ async function verifyUser(req: NextRequest) {
 export async function createUser(req: NextRequest) {
   try {
     await connectDB();
-    const body: any = await req.json();
-    const { firstName, lastName, email, phone, password, role } = body;
+    const { firstName, lastName, email, phone, password, role } = await req.json();
 
     if (!email) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
     const existing = await User.findOne({ email: email.toLowerCase() });
-
+    
     if (existing) {
       return NextResponse.json({ error: "Email already exists" }, { status: 409 });
     }
@@ -81,13 +80,13 @@ export async function createUser(req: NextRequest) {
     return NextResponse.json(
       {
         message: "User created",
-        data: {
-          id: user._id,
+        data: { 
+          id: user._id, 
           firstName: user.firstName,
           lastName: user.lastName,
           email: user.email,
           phone: user.phone,
-          role: user.role
+          role: user.role 
         },
         token,
       },
@@ -129,9 +128,6 @@ export async function getAllUsers(req: NextRequest) {
           email: user.email,
           phone: user.phone,
           role: user.role,
-          profileImage: user.profileImage,
-          position: user.position,
-          jerseyNumber: user.jerseyNumber
         })),
       },
       { status: 200 }
@@ -141,9 +137,9 @@ export async function getAllUsers(req: NextRequest) {
     if (error.message === "No token provided" || error.message === "Invalid token") {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
-    return NextResponse.json({
+    return NextResponse.json({ 
       error: error.message || "Failed to get users",
-      details: error.stack
+      details: error.stack 
     }, { status: 500 });
   }
 }
@@ -174,10 +170,6 @@ export async function getUser(req: NextRequest, { params }: { params: { id: stri
           email: user.email,
           phone: user.phone,
           role: user.role,
-          profileImage: user.profileImage,
-          position: user.position,
-          jerseyNumber: user.jerseyNumber,
-          profileCompleted: user.profileCompleted
         },
       },
       { status: 200 }
@@ -200,8 +192,7 @@ export async function updateUser(req: NextRequest, { params }: { params: { id: s
     await verifyUser(req);
 
     const { id } = params;
-    const body: any = await req.json();
-    const { firstName, lastName, email, phone, password, role } = body;
+    const { firstName, lastName, email, phone, password, role } = await req.json();
 
     const user = await User.findById(id);
     if (!user) {
@@ -210,27 +201,11 @@ export async function updateUser(req: NextRequest, { params }: { params: { id: s
 
     if (firstName) user.firstName = firstName;
     if (lastName) user.lastName = lastName;
-
-    const {
-      profileImage,
-      position,
-      jerseyNumber,
-      emergencyContactName,
-      emergencyPhone,
-      profileCompleted
-    } = body;
-
-    if (profileImage !== undefined) user.profileImage = profileImage;
-    if (position !== undefined) user.position = position;
-    if (jerseyNumber !== undefined) user.jerseyNumber = jerseyNumber;
-    if (emergencyContactName !== undefined) user.emergencyContactName = emergencyContactName;
-    if (emergencyPhone !== undefined) user.emergencyPhone = emergencyPhone;
-    if (profileCompleted !== undefined) user.profileCompleted = profileCompleted;
-
+    
     if (email) {
-      const existing = await User.findOne({
-        email: email.toLowerCase(),
-        _id: { $ne: id }
+      const existing = await User.findOne({ 
+        email: email.toLowerCase(), 
+        _id: { $ne: id } 
       });
       if (existing) {
         return NextResponse.json({ error: "Email already taken" }, { status: 409 });
@@ -241,9 +216,9 @@ export async function updateUser(req: NextRequest, { params }: { params: { id: s
     if (phone !== undefined) {
       // If phone is empty string, set to undefined
       if (phone && phone.trim() !== "") {
-        const existing = await User.findOne({
-          phone: phone.trim(),
-          _id: { $ne: id }
+        const existing = await User.findOne({ 
+          phone: phone.trim(), 
+          _id: { $ne: id } 
         });
         if (existing) {
           return NextResponse.json({ error: "Phone already taken" }, { status: 409 });
@@ -266,17 +241,13 @@ export async function updateUser(req: NextRequest, { params }: { params: { id: s
     return NextResponse.json(
       {
         message: "Updated",
-        data: {
+        data: { 
           id: user._id,
           firstName: user.firstName,
           lastName: user.lastName,
           email: user.email,
           phone: user.phone,
-          role: user.role,
-          profileImage: user.profileImage,
-          position: user.position,
-          jerseyNumber: user.jerseyNumber,
-          profileCompleted: user.profileCompleted
+          role: user.role 
         },
       },
       { status: 200 }

@@ -2,29 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db";
 import Match from "@/modules/match";
-import League, { LeagueSchema } from "@/modules/league";
-import Team, { TeamSchema } from "@/modules/team";
+import League from "@/modules/league";
+import Team from "@/modules/team";
 import Notification from "@/modules/notification";
-import Leaderboard from "@/modules/leaderboard";
-import User, { UserSchema } from "@/modules/user";
 import { verifyAccessToken } from "@/lib/jwt";
 import { updateLeaderboardFromMatch } from "./leaderboard";
-
-// Failsafe to ensure models are registered
-function ensureModelsRegistered() {
-  if (!mongoose.models.User && UserSchema) {
-    console.log("⚠️ User model missing in mongoose.models, re-registering...");
-    mongoose.model("User", UserSchema);
-  }
-  if (!mongoose.models.Team && TeamSchema) {
-    console.log("⚠️ Team model missing in mongoose.models, re-registering...");
-    mongoose.model("Team", TeamSchema);
-  }
-  if (!mongoose.models.League && LeagueSchema) {
-    console.log("⚠️ League model missing in mongoose.models, re-registering...");
-    mongoose.model("League", LeagueSchema);
-  }
-}
 
 // Helper to get token from request
 function getToken(req: NextRequest): string | null {
@@ -36,7 +18,7 @@ function getToken(req: NextRequest): string | null {
 async function verifyUser(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-
+  
   const decoded = verifyAccessToken(token);
   return decoded;
 }
@@ -61,8 +43,10 @@ export async function createMatch(req: NextRequest) {
 
     const decoded = await verifyUser(req);
 
+    const user = await verifyUser(req);
+
     // Get user ID from token (superadmin who creates the match)
-    const userId = (decoded as any).id || (decoded as any)._id || (decoded as any).userId;
+    const userId = (user as any).id || (user as any)._id || (user as any).userId;
     if (!userId) {
       return NextResponse.json(
         { error: "User ID not found in token" },
@@ -70,7 +54,7 @@ export async function createMatch(req: NextRequest) {
       );
     }
 
-    const body: any = await req.json();
+
     const {
       leagueId,
       teamA,
@@ -86,7 +70,7 @@ export async function createMatch(req: NextRequest) {
       status,
       teamAInitialSide,
       teamBInitialSide,
-    } = body;
+    } = await req.json();
 
     // Validate required fields
     if (!leagueId || !teamA || !teamB || !gameDate || !gameTime || !format) {
@@ -325,7 +309,7 @@ export async function getAllMatches(req: NextRequest) {
     console.log("🔵 getAllMatches called");
     await connectDB();
     console.log("✅ Database connected");
-
+    
     // Verify the user
     try {
       await verifyUser(req);
@@ -339,8 +323,6 @@ export async function getAllMatches(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const leagueId = searchParams.get("leagueId");
     const status = searchParams.get("status");
-    const statKeeperId = searchParams.get("statKeeperId");
-    const refereeId = searchParams.get("refereeId");
 
     let query: any = {};
 
@@ -350,22 +332,6 @@ export async function getAllMatches(req: NextRequest) {
       } catch (e: any) {
         console.error("❌ Invalid leagueId:", e);
         return NextResponse.json({ error: "Invalid league ID format" }, { status: 400 });
-      }
-    }
-
-    if (statKeeperId) {
-      try {
-        query.statKeeperId = toObjectId(statKeeperId);
-      } catch (e: any) {
-        console.error("❌ Invalid statKeeperId:", e);
-      }
-    }
-
-    if (refereeId) {
-      try {
-        query.refereeId = toObjectId(refereeId);
-      } catch (e: any) {
-        console.error("❌ Invalid refereeId:", e);
       }
     }
 
@@ -420,7 +386,7 @@ export async function getAllMatches(req: NextRequest) {
   } catch (error: any) {
     console.error("❌ Get matches error:", error);
     return NextResponse.json(
-      {
+      { 
         error: error.message || "Failed to get matches",
         details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       },
@@ -462,56 +428,6 @@ export async function getMatch(req: NextRequest, { params }: { params: { id: str
     if (!match) {
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
-
-    // --- MIGRATION: Backfill actions for legacy matches ---
-    // If actions array is empty but we have legacy playerActions, migrate them.
-    if ((!(match as any).actions || (match as any).actions.length === 0) &&
-      ((match as any).teamA?.playerActions?.length > 0 || (match as any).teamB?.playerActions?.length > 0)) {
-
-      console.log(`[MIGRATION] Backfilling actions for match ${matchId}`);
-      const migratedActions = [];
-
-      // Migrate Team A
-      if ((match as any).teamA?.playerActions) {
-        for (const action of (match as any).teamA.playerActions) {
-          migratedActions.push({
-            type: "score",
-            teamId: (match as any).teamA.teamId._id || (match as any).teamA.teamId,
-            playerId: action.playerId._id || action.playerId,
-            actionType: action.actionType,
-            // Retrieve name/pos from populated data if available, else generic
-            playerName: action.playerId.firstName ? `${action.playerId.firstName} ${action.playerId.lastName}` : "Unknown Player",
-            position: action.playerId.position || "",
-            timestamp: action.timestamp
-          });
-        }
-      }
-
-      // Migrate Team B
-      if ((match as any).teamB?.playerActions) {
-        for (const action of (match as any).teamB.playerActions) {
-          migratedActions.push({
-            type: "score",
-            teamId: (match as any).teamB.teamId._id || (match as any).teamB.teamId,
-            playerId: action.playerId._id || action.playerId,
-            actionType: action.actionType,
-            playerName: action.playerId.firstName ? `${action.playerId.firstName} ${action.playerId.lastName}` : "Unknown Player",
-            position: action.playerId.position || "",
-            timestamp: action.timestamp
-          });
-        }
-      }
-
-      // Sort chronological
-      migratedActions.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-      // Save to DB (using updateOne to avoid full validation issues)
-      await Match.updateOne({ _id: matchId }, { $set: { actions: migratedActions } });
-
-      // Update the local match object to return
-      (match as any).actions = migratedActions;
-    }
-    // -----------------------------------------------------
 
     return NextResponse.json(
       {
@@ -564,7 +480,7 @@ export async function updateMatch(req: NextRequest, { params }: { params: { id: 
       gameWinnerTeam,
       timesSwitched,
       completedAt,
-    } = await req.json() as any;
+    } = await req.json();
 
     // Get league to validate date range
     const league = await League.findById((match as any).leagueId);
@@ -631,22 +547,11 @@ export async function updateMatch(req: NextRequest, { params }: { params: { id: 
         );
       }
       (match as any).status = "completed";
-
+      
       // Set completedAt when status is completed
       if (!(match as any).completedAt) {
         (match as any).completedAt = new Date();
       }
-
-      // Add Game Complete milestone to timeline
-      if (!(match as any).actions) {
-        (match as any).actions = [];
-      }
-      (match as any).actions.push({
-        type: "gamecomplete",
-        actionType: "Game Complete",
-        timestamp: new Date()
-      });
-      (match as any).markModified("actions"); // Ensure it's saved
 
       // Calculate winner based on scores
       const teamAScore = (match as any).teamA.score || 0;
@@ -877,13 +782,12 @@ function getActionScore(actionType: string): number {
 export async function addGameAction(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await connectDB();
-    ensureModelsRegistered();
     await verifyUser(req);
 
     const { id } = params;
     const matchId = toObjectId(id);
 
-    const { teamId, playerId, actionType, quarter } = await req.json() as any;
+    const { teamId, playerId, actionType, quarter } = await req.json();
 
     // Validate required fields
     if (!teamId || !playerId || !actionType) {
@@ -948,7 +852,7 @@ export async function addGameAction(req: NextRequest, { params }: { params: { id
       team.playerActions = [];
     }
     team.playerActions.push(newAction);
-
+    
     // Mark the array as modified for Mongoose
     (match as any).markModified(isTeamA ? "teamA.playerActions" : "teamB.playerActions");
 
@@ -956,7 +860,7 @@ export async function addGameAction(req: NextRequest, { params }: { params: { id
     team.score = (team.score || 0) + actionScore;
 
     // Update player stats
-    let playerStat = team.playerStats.find((ps: any) =>
+    let playerStat = team.playerStats.find((ps: any) => 
       ps.playerId.toString() === playerId
     );
 
@@ -1007,44 +911,11 @@ export async function addGameAction(req: NextRequest, { params }: { params: { id
       team.teamStats.safeties = (team.teamStats.safeties || 0) + 1;
     }
 
-    // Verify User to get name and position for the immutable action record
-    const playerUser = await User.findById(playerObjectId);
-    const playerName = playerUser ? `${playerUser.firstName} ${playerUser.lastName}` : "Unknown Player";
-    const playerPosition = playerUser?.position || ""; // Assuming position field exists on User
-
-    // Create the unified timeline action
-    const timelineAction = {
-      type: "score", // or 'player_action'
-      teamId: toObjectId(teamId),
-      playerId: playerObjectId,
-      actionType: actionType,
-      position: playerPosition,
-      playerName: playerName,
-      timestamp: new Date()
-    };
-
-    // Push to the new actions timeline
-    if (!(match as any).actions) {
-      (match as any).actions = [];
-    }
-    (match as any).actions.push(timelineAction);
-    (match as any).markModified("actions");
-
-    // Use explicit path updates to ensure separation
-    const scorePath = isTeamA ? 'teamA.score' : 'teamB.score';
-    const currentScore = (match as any).get(scorePath) || 0;
-    const newScore = currentScore + actionScore;
-    (match as any).set(scorePath, newScore);
-
     team.teamStats.totalPoints = (team.teamStats.totalPoints || 0) + actionScore;
 
-    console.log(`[DEBUG] Action added for Team ${isTeamA ? 'A' : 'B'} (${teamId}). Old Score: ${currentScore}, New Score: ${newScore}`);
-
     // Mark as modified
-    (match as any).markModified(isTeamA ? "teamA.playerActions" : "teamB.playerActions");
     (match as any).markModified(isTeamA ? "teamA.playerStats" : "teamB.playerStats");
     (match as any).markModified(isTeamA ? "teamA.teamStats" : "teamB.teamStats");
-    (match as any).markModified(scorePath);
 
     // Set status to "continue" if it's still "upcoming" (first action)
     if ((match as any).status === "upcoming") {
@@ -1052,51 +923,6 @@ export async function addGameAction(req: NextRequest, { params }: { params: { id
     }
 
     await match.save();
-
-    // Update global stats
-    try {
-      if ((match as any).leagueId) {
-        // 1. Update Scoring Team: +PF, +PD
-        await Leaderboard.findOneAndUpdate(
-          {
-            leagueId: (match as any).leagueId,
-            "teams.teamId": team.teamId
-          },
-          {
-            $inc: {
-              "teams.$.pointsScored": actionScore,
-              "teams.$.pointDifference": actionScore
-            }
-          }
-        );
-
-        // 2. Update Opponent Team: +PA, -PD
-        const opponentId = isTeamA ? teamBId : teamAId;
-        await Leaderboard.findOneAndUpdate(
-          {
-            leagueId: (match as any).leagueId,
-            "teams.teamId": toObjectId(opponentId)
-          },
-          {
-            $inc: {
-              "teams.$.pointsAgainst": actionScore,
-              "teams.$.pointDifference": -actionScore
-            }
-          }
-        );
-      }
-
-      // Update User (Player Stats) - Increment totalPoints
-      if (playerObjectId) {
-        await User.findByIdAndUpdate(
-          playerObjectId,
-          { $inc: { totalPoints: actionScore } }
-        );
-      }
-    } catch (statsError) {
-      console.error("Error updating global stats:", statsError);
-      // Don't fail the request if stats update fails
-    }
 
     // Populate and return
     await match.populate("leagueId", "leagueName format startDate endDate logo");
@@ -1150,27 +976,24 @@ export async function switchHalfTime(req: NextRequest, { params }: { params: { i
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
 
-    // Push Half Time milestone to timeline
-    if (!(existingMatch as any).actions) {
-      (existingMatch as any).actions = [];
-    }
-    (existingMatch as any).actions.push({
-      type: "halftime",
-      actionType: "Half Time",
-      timestamp: new Date()
-    });
-
     // Swap sides and update timesSwitched
     const teamASide = (existingMatch as any).teamA.side;
     const teamBSide = (existingMatch as any).teamB.side;
     const newTeamASide = teamASide === "offense" ? "defense" : "offense";
     const newTeamBSide = teamBSide === "offense" ? "defense" : "offense";
 
-    (existingMatch as any).teamA.side = newTeamASide;
-    (existingMatch as any).teamB.side = newTeamBSide;
-    (existingMatch as any).timesSwitched = "halfTime";
-
-    await existingMatch.save();
+    // Update only the fields we're changing (sides and timesSwitched)
+    // Using updateOne to avoid validating the entire document (status might be invalid)
+    await Match.updateOne(
+      { _id: matchId },
+      {
+        $set: {
+          "teamA.side": newTeamASide,
+          "teamB.side": newTeamBSide,
+          timesSwitched: "halfTime"
+        }
+      }
+    );
 
     // Reload the match to get updated data
     const updatedMatch = await Match.findById(matchId);
@@ -1232,27 +1055,24 @@ export async function switchFullTime(req: NextRequest, { params }: { params: { i
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
 
-    // Push Full Time milestone to timeline
-    if (!(existingMatch as any).actions) {
-      (existingMatch as any).actions = [];
-    }
-    (existingMatch as any).actions.push({
-      type: "fulltime",
-      actionType: "Full Time",
-      timestamp: new Date()
-    });
-
     // Swap sides again (second swap) and update timesSwitched
     const teamASide = (existingMatch as any).teamA.side;
     const teamBSide = (existingMatch as any).teamB.side;
     const newTeamASide = teamASide === "offense" ? "defense" : "offense";
     const newTeamBSide = teamBSide === "offense" ? "defense" : "offense";
 
-    (existingMatch as any).teamA.side = newTeamASide;
-    (existingMatch as any).teamB.side = newTeamBSide;
-    (existingMatch as any).timesSwitched = "fullTime";
-
-    await existingMatch.save();
+    // Update only the fields we're changing (sides and timesSwitched)
+    // Using updateOne to avoid validating the entire document (status might be invalid)
+    await Match.updateOne(
+      { _id: matchId },
+      {
+        $set: {
+          "teamA.side": newTeamASide,
+          "teamB.side": newTeamBSide,
+          timesSwitched: "fullTime"
+        }
+      }
+    );
 
     // Reload the match to get updated data
     const updatedMatch = await Match.findById(matchId);
@@ -1314,19 +1134,16 @@ export async function switchOvertime(req: NextRequest, { params }: { params: { i
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
 
-    // Push Over Time milestone to timeline
-    if (!(existingMatch as any).actions) {
-      (existingMatch as any).actions = [];
-    }
-    (existingMatch as any).actions.push({
-      type: "overtime",
-      actionType: "Over Time",
-      timestamp: new Date()
-    });
-
-    (existingMatch as any).timesSwitched = "overtime";
-
-    await existingMatch.save();
+    // Update only timesSwitched to overtime (no side swapping)
+    // Using updateOne to avoid validating the entire document (status might be invalid)
+    await Match.updateOne(
+      { _id: matchId },
+      {
+        $set: {
+          timesSwitched: "overtime"
+        }
+      }
+    );
 
     // Reload the match to get updated data
     const updatedMatch = await Match.findById(matchId);
@@ -1367,96 +1184,4 @@ export async function switchOvertime(req: NextRequest, { params }: { params: { i
     );
   }
 }
-
-/**
- * Update match toss
- * POST /api/match/:id/toss
- */
-export async function updateToss(req: NextRequest, { params }: { params: { id: string } }) {
-  try {
-    await connectDB();
-    await verifyUser(req);
-
-    const { id } = params;
-    const matchId = toObjectId(id);
-
-    const body = await req.json() as any;
-    const winningTeamId = body.winningTeamId || body.winnerTeamId;
-    const choice = body.choice || body.winnerSide;
-
-    if (!winningTeamId || !choice) {
-      return NextResponse.json(
-        { error: "Winning Team ID (winnerTeamId) and Choice (winnerSide) are required" },
-        { status: 400 }
-      );
-    }
-
-    if (!["offense", "defense"].includes(choice)) {
-      return NextResponse.json(
-        { error: "Choice must be 'offense' or 'defense'" },
-        { status: 400 }
-      );
-    }
-
-    const match = await Match.findById(matchId);
-    if (!match) {
-      return NextResponse.json({ error: "Match not found" }, { status: 404 });
-    }
-
-    const winningTeamObjectId = toObjectId(winningTeamId);
-
-    // Identify which team is A and which is B
-    // We need to compare ObjectIds as strings to be safe
-    const teamAIdString = (match as any).teamA.teamId.toString();
-    const teamBIdString = (match as any).teamB.teamId.toString();
-    const winningTeamIdString = winningTeamObjectId.toString();
-
-    let teamA = (match as any).teamA;
-    let teamB = (match as any).teamB;
-
-    if (teamAIdString === winningTeamIdString) {
-      // Team A won toss
-      if (choice === "offense") {
-        teamA.side = "offense";
-        teamB.side = "defense";
-      } else {
-        teamA.side = "defense";
-        teamB.side = "offense";
-      }
-    } else if (teamBIdString === winningTeamIdString) {
-      // Team B won toss
-      if (choice === "offense") {
-        teamB.side = "offense";
-        teamA.side = "defense";
-      } else {
-        teamB.side = "defense";
-        teamA.side = "offense";
-      }
-    } else {
-      return NextResponse.json(
-        { error: "Winning team is not part of this match" },
-        { status: 400 }
-      );
-    }
-
-    await match.save();
-
-    // Return updated match
-    return NextResponse.json(
-      {
-        message: "Toss updated successfully",
-        data: match,
-      },
-      { status: 200 }
-    );
-
-  } catch (error: any) {
-    console.error("Update toss error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to update toss" },
-      { status: 500 }
-    );
-  }
-}
-
 

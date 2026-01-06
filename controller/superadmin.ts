@@ -14,10 +14,10 @@ function getToken(req: NextRequest): string | null {
 async function verifyAdmin(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-
+  
   const decoded = verifyAccessToken(token);
   if (decoded.role !== "superadmin") throw new Error("Unauthorized");
-
+  
   return decoded;
 }
 
@@ -28,7 +28,7 @@ async function verifyAdmin(req: NextRequest) {
 export async function createSuperAdmin(req: NextRequest) {
   try {
     await connectDB();
-    const { email, password } = await req.json() as any;
+    const { email, password } = await req.json();
 
     if (!email || !password) {
       return NextResponse.json({ error: "Email and password required" }, { status: 400 });
@@ -74,12 +74,12 @@ export async function updateSuperAdmin(req: NextRequest, { params }: { params: {
     await verifyAdmin(req);
 
     const { id } = params;
-
+    
     if (!id) {
       return NextResponse.json({ error: "ID is required" }, { status: 400 });
     }
 
-    const { email, password } = await req.json() as any;
+    const { email, password } = await req.json();
 
     const superAdmin = await SuperAdmin.findById(id);
     if (!superAdmin) {

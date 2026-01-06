@@ -14,16 +14,16 @@ function getToken(req: NextRequest): string | null {
 async function verifyUser(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-
+  
   const decoded = verifyAccessToken(token);
-
+  
   if (decoded.role !== "superadmin") {
     const user = await User.findById(decoded.userId);
     if (!user || user.role !== "superadmin") {
       throw new Error("Unauthorized - Superadmin access required");
     }
   }
-
+  
   return decoded;
 }
 
@@ -46,12 +46,7 @@ export async function GET(req: NextRequest) {
 
     // Filter by status if specified
     if (statusFilter !== "all") {
-      // Map frontend status names to backend status names
-      let backendStatus = statusFilter;
-      if (statusFilter === "completed") backendStatus = "paid";
-      if (statusFilter === "pending") backendStatus = "unpaid";
-
-      query.status = backendStatus;
+      query.status = statusFilter;
     }
 
     // Find all payments

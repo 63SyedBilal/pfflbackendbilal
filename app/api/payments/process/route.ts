@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { connectDB } from "@/lib/db";
 import Payment from "@/modules/payment";
-import Notification from "@/modules/notification";
-import User from "@/modules/user";
 import { verifyAccessToken } from "@/lib/jwt";
 
 // Initialize Stripe lazily to avoid build-time errors
@@ -56,14 +54,14 @@ export async function POST(req: NextRequest) {
     console.log("✅ User authenticated:", decoded.userId);
 
     // Parse request body
-    const body: any = await req.json();
-    const {
-      paymentId,
-      paymentMethod,
-      cardNumber,
-      expiryDate,
+    const body = await req.json();
+    const { 
+      paymentId, 
+      paymentMethod, 
+      cardNumber, 
+      expiryDate, 
       cvv,
-      idempotencyKey
+      idempotencyKey 
     } = body;
 
     console.log("📝 Payment request data:");
@@ -122,9 +120,10 @@ export async function POST(req: NextRequest) {
       console.log("   - Transaction ID:", payment.transactionId);
       console.log("   - Payment Method:", payment.paymentMethod);
       return NextResponse.json(
-        {
-          success: false,
+        { 
+          success: false, 
           error: "This payment has already been processed",
+          alreadyPaid: true,
           transactionId: payment.transactionId
         },
         { status: 400 }
@@ -147,7 +146,7 @@ export async function POST(req: NextRequest) {
     );
   } catch (error: any) {
     console.error("❌ Error in payment processing API:", error);
-
+    
     // Handle specific error types
     if (error.message === "No token provided") {
       return NextResponse.json(
@@ -155,7 +154,7 @@ export async function POST(req: NextRequest) {
         { status: 401 }
       );
     }
-
+    
     if (error.message === "Invalid token") {
       return NextResponse.json(
         { success: false, error: "Your session has expired. Please log in again." },
@@ -197,7 +196,7 @@ async function processStripePayment(
   try {
     // Parse expiry date (MM/YY)
     const [exp_month, exp_year] = expiryDate.split("/");
-
+    
     if (!exp_month || !exp_year || exp_month.length !== 2 || exp_year.length !== 2) {
       return NextResponse.json(
         { success: false, error: "Invalid expiry date format. Please use MM/YY format." },
@@ -227,47 +226,25 @@ async function processStripePayment(
     console.log("💳 Creating payment method...");
     // Create a payment method with the card details
     const stripe = getStripe();
-    let paymentMethodId: string;
+    const paymentMethod = await stripe.paymentMethods.create({
+      type: "card",
+      card: {
+        number: cleanCardNumber,
+        exp_month: parseInt(exp_month),
+        exp_year: parseInt(fullYear),
+        cvc: cvv,
+      },
+    });
 
-    try {
-      const pm = await stripe.paymentMethods.create({
-        type: "card",
-        card: {
-          number: cleanCardNumber,
-          exp_month: parseInt(exp_month),
-          exp_year: parseInt(fullYear),
-          cvc: cvv,
-        },
-      });
-      paymentMethodId = pm.id;
-      console.log("✅ Payment method created:", paymentMethodId);
-    } catch (stripeError: any) {
-      // If raw card data is blocked (Stripe policy), and it's a test card in development,
-      // use the 'tok_visa' token as a workaround for testing.
-      if (stripeError.message.includes("Sending credit card numbers directly to the Stripe API is generally unsafe") &&
-        cleanCardNumber === "4242424242424242") {
-        console.log("⚠️ Raw card data blocked by Stripe policy. Creating payment method from test token (tok_visa) for development.");
-
-        // Creating a PaymentMethod from a token is allowed and avoids sending raw card details
-        const pm = await stripe.paymentMethods.create({
-          type: "card",
-          card: {
-            token: "tok_visa",
-          },
-        });
-        paymentMethodId = pm.id;
-        console.log("✅ Payment method created from token:", paymentMethodId);
-      } else {
-        throw stripeError;
-      }
-    }
+    console.log("✅ Payment method created:", paymentMethod.id);
 
     console.log("💳 Creating payment intent...");
-
+    
     // Prepare payment intent options
     const paymentIntentOptions: any = {
       amount: Math.round(payment.amount * 100), // Convert to cents
       currency: "usd",
+      payment_method: paymentMethod.id,
       confirm: true,
       automatic_payment_methods: {
         enabled: true,
@@ -281,8 +258,6 @@ async function processStripePayment(
         environment: process.env.NODE_ENV || "development"
       },
     };
-
-    paymentIntentOptions.payment_method = paymentMethodId;
 
     // Add idempotency key if provided (prevents duplicate charges)
     if (idempotencyKey) {
@@ -303,10 +278,10 @@ async function processStripePayment(
     // Check if payment was successful
     if (paymentIntent.status !== "succeeded") {
       console.error("❌ Payment intent failed:", paymentIntent.status);
-
+      
       // Provide user-friendly error messages
       let errorMessage = "Payment failed. Please try again.";
-
+      
       if (paymentIntent.status === "requires_payment_method") {
         errorMessage = "Your card was declined. Please check your card details or try a different card.";
       } else if (paymentIntent.status === "requires_action") {
@@ -314,7 +289,7 @@ async function processStripePayment(
       } else if (paymentIntent.status === "requires_confirmation") {
         errorMessage = "Payment confirmation failed. Please try again.";
       }
-
+      
       return NextResponse.json(
         {
           success: false,
@@ -351,28 +326,6 @@ async function processStripePayment(
 
     console.log("💳 ========== STRIPE PAYMENT SUCCESSFUL ==========\n");
 
-    // 🔔 Step D — Notify Superadmins
-    try {
-      const superAdmins = await User.find({ role: "superadmin" });
-      const payerName = `${payment.userId.firstName} ${payment.userId.lastName}`;
-      const leagueName = payment.leagueId.leagueName;
-
-      for (const admin of superAdmins) {
-        await Notification.create({
-          sender: payment.userId._id,
-          receiver: admin._id,
-          league: payment.leagueId._id,
-          type: "PAYMENT_COMPLETED",
-          status: "accepted", // Auto-accepted as it's just a notification
-          message: `${payerName} has completed the payment for league: ${leagueName}`
-        });
-      }
-      console.log(`🔔 Notified ${superAdmins.length} superadmins about the payment.`);
-    } catch (notifError) {
-      console.error("⚠️ Error creating notifications for admins:", notifError);
-      // Don't fail the response if notification fails
-    }
-
     return NextResponse.json(
       {
         success: true,
@@ -384,10 +337,10 @@ async function processStripePayment(
     );
   } catch (stripeError: any) {
     console.error("❌ Stripe error:", stripeError);
-
+    
     // Provide user-friendly error messages based on Stripe error type
     let errorMessage = "Payment processing failed. Please try again.";
-
+    
     if (stripeError.type === "StripeCardError") {
       errorMessage = stripeError.message || "Your card was declined. Please check your card details or try a different card.";
     } else if (stripeError.type === "StripeInvalidRequestError") {
@@ -399,7 +352,7 @@ async function processStripePayment(
     } else if (stripeError.type === "StripeAuthenticationError") {
       errorMessage = "Payment service authentication error. Please contact support.";
     }
-
+    
     return NextResponse.json(
       {
         success: false,

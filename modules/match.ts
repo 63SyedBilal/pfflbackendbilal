@@ -106,7 +106,7 @@ const TeamMatchSchema = new mongoose.Schema(
           type: Date,
           default: Date.now
         },
-
+      
       }
     ],
 
@@ -188,10 +188,10 @@ const MatchSchema = new mongoose.Schema(
       enum: ["upcoming", "continue", "completed"],
       default: "upcoming"
     },
-
+    
     timesSwitched: {
       type: String,
-      enum: ["halfTime", "fullTime", "overtime", null],
+      enum: ["halfTime", "fullTime", "overtime", null], 
       default: null
     },
     gameWinnerTeam: {
@@ -228,47 +228,18 @@ const MatchSchema = new mongoose.Schema(
     completedAt: {
       type: Date,
       default: null
-    },
-
-    /* -------- TIMELINE ACTIONS -------- */
-    actions: [
-      {
-        type: {
-          type: String,
-          required: true
-        },
-        teamId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Team",
-          default: null
-        },
-        playerId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User",
-          default: null
-        },
-        actionType: {
-          type: String
-        },
-        position: {
-          type: String
-        },
-        playerName: {
-          type: String
-        },
-        timestamp: {
-          type: Date,
-          default: Date.now
-        }
-      }
-    ]
+    }
   },
   { timestamps: true }
 );
 
 /* ================= SAFE EXPORT ================= */
 
-const Match = mongoose.models.Match || mongoose.model("Match", MatchSchema);
+if (mongoose.models.Match) {
+  delete mongoose.models.Match;
+}
+
+const Match = mongoose.model("Match", MatchSchema);
 export default Match;
 
 

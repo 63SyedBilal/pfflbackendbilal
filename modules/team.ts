@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-export const TeamSchema = new mongoose.Schema(
+const TeamSchema = new mongoose.Schema(
   {
     teamName: {
       type: String,
@@ -65,7 +65,7 @@ export const TeamSchema = new mongoose.Schema(
 );
 
 // Virtual to get all unique players from both squads
-TeamSchema.virtual("allPlayers").get(function () {
+TeamSchema.virtual("allPlayers").get(function() {
   const squad5v5Ids = (this.squad5v5 || []).map((id: any) => id.toString())
   const squad7v7Ids = (this.squad7v7 || []).map((id: any) => id.toString())
   const allIds = [...new Set([...squad5v5Ids, ...squad7v7Ids])]
@@ -73,7 +73,7 @@ TeamSchema.virtual("allPlayers").get(function () {
 })
 
 // Middleware to automatically update players array when squads change
-TeamSchema.pre("save", async function () {
+TeamSchema.pre("save", async function() {
   try {
     const squad5v5Ids = (this.squad5v5 || []).map((id: any) => {
       if (mongoose.Types.ObjectId.isValid(id)) {
@@ -88,7 +88,7 @@ TeamSchema.pre("save", async function () {
       return id
     })
     const allUniqueIds = [...new Set([...squad5v5Ids, ...squad7v7Ids])]
-
+    
     // Convert back to ObjectIds
     this.players = allUniqueIds
       .filter((id: string) => mongoose.Types.ObjectId.isValid(id))
@@ -99,7 +99,13 @@ TeamSchema.pre("save", async function () {
   }
 })
 
-const Team = mongoose.models.Team || mongoose.model("Team", TeamSchema);
+// Prevent model overwrite error in Next.js development
+// Delete the model if it exists to force recompilation with new schema
+if (mongoose.models.Team) {
+  delete mongoose.models.Team;
+}
+
+const Team = mongoose.model("Team", TeamSchema);
 
 export default Team;
 

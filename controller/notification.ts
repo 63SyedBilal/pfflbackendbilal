@@ -4,8 +4,6 @@ import Notification from "@/modules/notification";
 import Team from "@/modules/team";
 import User from "@/modules/user";
 import League from "@/modules/league";
-import SuperAdmin from "@/modules/superadmin";
-import Match from "@/modules/match";
 import { verifyAccessToken } from "@/lib/jwt";
 import mongoose from "mongoose";
 import { addTeamToLeaderboard } from "./leaderboard";
@@ -20,7 +18,7 @@ function getToken(req: NextRequest): string | null {
 async function verifyUserToken(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-
+  
   const decoded = verifyAccessToken(token);
   return decoded;
 }
@@ -34,8 +32,7 @@ export async function invitePlayer(req: NextRequest) {
     await connectDB();
     const decoded = await verifyUserToken(req);
 
-    const body: any = await req.json();
-    const { playerId, teamId, format } = body;
+    const { playerId, teamId, format } = await req.json();
 
     if (!playerId || !teamId || !format) {
       return NextResponse.json(
@@ -202,17 +199,17 @@ export async function getAllNotifications(req: NextRequest) {
       .sort({ createdAt: -1 });
 
     console.log(`Found ${notifications.length} notifications for user ${userId}`);
-    console.log("Notification types:", notifications.map((n: any) => ({
-      type: n.type,
+    console.log("Notification types:", notifications.map((n: any) => ({ 
+      type: n.type, 
       receiver: n.receiver?.toString() || n.receiver,
-      sender: n.sender && typeof n.sender === 'object' && 'firstName' in n.sender
-        ? `${n.sender.firstName} ${n.sender.lastName}`
+      sender: n.sender && typeof n.sender === 'object' && 'firstName' in n.sender 
+        ? `${n.sender.firstName} ${n.sender.lastName}` 
         : "null",
       league: n.league && typeof n.league === 'object' && 'leagueName' in n.league
-        ? n.league.leagueName
+        ? n.league.leagueName 
         : "null",
       team: n.team && typeof n.team === 'object' && 'teamName' in n.team
-        ? n.team.teamName
+        ? n.team.teamName 
         : "null"
     })));
 
@@ -268,10 +265,10 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
     // Verify the notification belongs to the logged-in user
     const receiverId = notification.receiver.toString();
     const userId = decoded.userId.toString();
-
+    
     console.log("Receiver ID:", receiverId);
     console.log("User ID:", userId);
-
+    
     if (receiverId !== userId) {
       return NextResponse.json(
         { error: "You can only accept your own invites" },
@@ -291,16 +288,10 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
 
     // Handle TEAM_INVITE
     if (notificationType === "TEAM_INVITE") {
-      if (!notification.team) {
-        return NextResponse.json(
-          { error: "Team ID is missing in the notification" },
-          { status: 400 }
-        );
-      }
       // Get team - notification.team might be ObjectId or populated object
-      const teamId = notification.team.toString();
+      const teamId = notification.team?.toString ? notification.team.toString() : (notification.team as any)?._id?.toString() || notification.team;
       const team = await Team.findById(teamId);
-
+      
       if (!team) {
         console.error("Team not found with ID:", teamId);
         return NextResponse.json(
@@ -324,7 +315,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
       const playerIdString = decoded.userId.toString();
       const squadField = format === "5v5" ? "squad5v5" : "squad7v7";
       const squadPlayers = (team as any)[squadField].map((p: any) => p.toString());
-
+      
       if (squadPlayers.includes(playerIdString)) {
         return NextResponse.json(
           { error: `You are already in the ${format} squad for this team` },
@@ -381,22 +372,8 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
       await notification.populate("team", "teamName image");
       await notification.populate("receiver", "firstName lastName email");
 
-      // 🔔 Notify captain that player accepted
-      try {
-        await Notification.create({
-          sender: notification.receiver,
-          receiver: notification.sender,
-          team: notification.team,
-          type: "INVITE_ACCEPTED_TEAM",
-          status: "accepted",
-          message: `${(user as any).firstName} ${(user as any).lastName} has accepted your invite to join ${team.teamName}.`
-        });
-      } catch (e) {
-        console.error("Error notifying captain:", e);
-      }
-
-      const roleChangeMessage = wasFreeAgent
-        ? " Your role has been updated from free-agent to player."
+      const roleChangeMessage = wasFreeAgent 
+        ? " Your role has been updated from free-agent to player." 
         : "";
 
       return NextResponse.json(
@@ -410,15 +387,9 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
 
     // Handle LEAGUE_REFEREE_INVITE
     if (notificationType === "LEAGUE_REFEREE_INVITE") {
-      if (!notification.league) {
-        return NextResponse.json(
-          { error: "League ID is missing in the notification" },
-          { status: 400 }
-        );
-      }
-      const leagueId = notification.league.toString();
+      const leagueId = notification.league?.toString ? notification.league.toString() : (notification.league as any)?._id?.toString() || notification.league;
       const league = await League.findById(leagueId);
-
+      
       if (!league) {
         return NextResponse.json(
           { error: "League not found" },
@@ -428,7 +399,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
 
       const refereeId = decoded.userId.toString();
       const referees = (league as any).referees || [];
-
+      
       if (referees.some((r: any) => r.toString() === refereeId)) {
         return NextResponse.json(
           { error: "You are already a referee in this league" },
@@ -459,15 +430,9 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
 
     // Handle LEAGUE_STATKEEPER_INVITE
     if (notificationType === "LEAGUE_STATKEEPER_INVITE") {
-      if (!notification.league) {
-        return NextResponse.json(
-          { error: "League ID is missing in the notification" },
-          { status: 400 }
-        );
-      }
-      const leagueId = notification.league.toString();
+      const leagueId = notification.league?.toString ? notification.league.toString() : (notification.league as any)?._id?.toString() || notification.league;
       const league = await League.findById(leagueId);
-
+      
       if (!league) {
         return NextResponse.json(
           { error: "League not found" },
@@ -477,7 +442,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
 
       const statKeeperId = decoded.userId.toString();
       const statKeepers = (league as any).statKeepers || [];
-
+      
       if (statKeepers.some((sk: any) => sk.toString() === statKeeperId)) {
         return NextResponse.json(
           { error: "You are already a stat keeper in this league" },
@@ -511,20 +476,14 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
       console.log("🔵 ========== LEAGUE_TEAM_INVITE ACCEPTANCE START ==========");
       console.log("🔵 Notification ID:", notification._id);
       console.log("🔵 Notification Type:", notificationType);
-
-      if (!notification.league) {
-        return NextResponse.json(
-          { error: "League ID is missing in the notification" },
-          { status: 400 }
-        );
-      }
-      const leagueId = notification.league.toString();
+      
+      const leagueId = notification.league?.toString ? notification.league.toString() : (notification.league as any)?._id?.toString() || notification.league;
       console.log("🔵 League ID (raw):", notification.league);
       console.log("🔵 League ID (processed):", leagueId);
-
+      
       const league = await League.findById(leagueId);
       console.log("🔵 League found:", league ? "YES" : "NO");
-
+      
       if (!league) {
         console.error("❌ League not found with ID:", leagueId);
         return NextResponse.json(
@@ -532,23 +491,17 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
           { status: 404 }
         );
       }
-
+      
       console.log("🔵 League Name:", (league as any).leagueName);
       console.log("🔵 League Fee:", (league as any).perPlayerLeagueFee);
 
-      if (!notification.team) {
-        return NextResponse.json(
-          { error: "Team ID is missing in the notification" },
-          { status: 400 }
-        );
-      }
-      const teamId = notification.team.toString();
+      const teamId = notification.team?.toString ? notification.team.toString() : (notification.team as any)?._id?.toString() || notification.team;
       console.log("🔵 Team ID (raw):", notification.team);
       console.log("🔵 Team ID (processed):", teamId);
-
+      
       const team = await Team.findById(teamId);
       console.log("🔵 Team found:", team ? "YES" : "NO");
-
+      
       if (!team) {
         console.error("❌ Team not found with ID:", teamId);
         return NextResponse.json(
@@ -556,7 +509,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
           { status: 404 }
         );
       }
-
+      
       console.log("🔵 Team Name:", team.teamName);
       console.log("🔵 Team Captain ID:", team.captain);
       console.log("🔵 Decoded User ID:", decoded.userId);
@@ -569,12 +522,12 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
           { status: 403 }
         );
       }
-
+      
       console.log("✅ User is the captain - proceeding");
 
       const teams = (league as any).teams || [];
       console.log("🔵 Current teams in league:", teams.length);
-
+      
       if (teams.some((t: any) => t.toString() === teamId)) {
         console.error("❌ Team already in league");
         return NextResponse.json(
@@ -606,7 +559,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
         console.log("🔵 Importing createPayment function...");
         const { createPayment } = await import("@/controller/payment");
         console.log("✅ createPayment imported successfully");
-
+        
         // Helper to convert string ID to ObjectId
         const toObjectId = (id: string | any): mongoose.Types.ObjectId => {
           if (id instanceof mongoose.Types.ObjectId) {
@@ -623,7 +576,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
         console.log("🔵 squad5v5 (raw):", team.squad5v5);
         console.log("🔵 squad7v7 (raw):", team.squad7v7);
         console.log("🔵 captain (raw):", team.captain);
-
+        
         const squad5v5Ids = (team.squad5v5 || []).map((id: any) => {
           if (id?.toString) return id.toString();
           if (id instanceof mongoose.Types.ObjectId) return id.toString();
@@ -635,14 +588,14 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
           return String(id);
         });
         const captainId = team.captain?.toString ? team.captain.toString() : String(team.captain);
-
+        
         console.log("🔵 squad5v5 IDs:", squad5v5Ids);
         console.log("🔵 squad7v7 IDs:", squad7v7Ids);
         console.log("🔵 captain ID:", captainId);
-
+        
         // Combine all player IDs (including captain) and remove duplicates
         const allPlayerIds = [...new Set([...squad5v5Ids, ...squad7v7Ids, captainId])];
-
+        
         console.log(`💰 ========== PAYMENT CREATION FOR ${allPlayerIds.length} PLAYERS ==========`);
         console.log(`💰 Team Name: ${team.teamName}`);
         console.log(`💰 League Name: ${(league as any).leagueName}`);
@@ -650,7 +603,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
         console.log(`💰 Team ID: ${teamId}`);
         console.log(`💰 League Fee: $${(league as any).perPlayerLeagueFee}`);
         console.log(`💰 All Player IDs (${allPlayerIds.length}):`, allPlayerIds);
-
+        
         // Create payment for each player
         console.log(`💰 Starting payment creation for ${allPlayerIds.length} players...`);
         const paymentPromises = allPlayerIds.map(async (playerIdStr: string, index: number) => {
@@ -659,12 +612,12 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
             const playerId = toObjectId(playerIdStr);
             const leagueObjectId = toObjectId(leagueId);
             const teamObjectId = toObjectId(teamId);
-
+            
             console.log(`💰 [${index + 1}] Converted IDs:`);
             console.log(`   - Player ID: ${playerId.toString()}`);
             console.log(`   - League ID: ${leagueObjectId.toString()}`);
             console.log(`   - Team ID: ${teamObjectId.toString()}`);
-
+            
             // Get user to check role
             console.log(`💰 [${index + 1}] Looking up user in database...`);
             const player = await User.findById(playerId);
@@ -672,27 +625,27 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
               console.error(`❌ [${index + 1}] Player not found in database: ${playerIdStr}`);
               return null;
             }
-
+            
             console.log(`💰 [${index + 1}] User found:`);
             console.log(`   - Email: ${player.email}`);
             console.log(`   - Role: ${player.role}`);
             console.log(`   - Name: ${player.firstName} ${player.lastName}`);
             console.log(`   - User ID: ${player._id}`);
-
+            
             // Only create payment for players and captains, skip referees and stat-keepers
             if (player.role !== "player" && player.role !== "captain" && player.role !== "free-agent") {
               console.log(`⏭️ [${index + 1}] Skipping payment for ${player.email} (role: ${player.role} - not eligible)`);
               return null;
             }
-
+            
             // Create payment
             console.log(`💰 [${index + 1}] Calling createPayment function...`);
             console.log(`   - userId: ${playerId.toString()}`);
             console.log(`   - leagueId: ${leagueObjectId.toString()}`);
             console.log(`   - teamId: ${teamObjectId.toString()}`);
-
+            
             const payment = await createPayment(playerId, leagueObjectId, teamObjectId);
-
+            
             console.log(`✅ [${index + 1}] Payment created successfully!`);
             console.log(`   - Payment ID: ${payment._id}`);
             console.log(`   - Amount: $${payment.amount}`);
@@ -700,7 +653,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
             console.log(`   - User: ${player.firstName} ${player.lastName} (${player.email})`);
             console.log(`   - League: ${(league as any).leagueName}`);
             console.log(`   - Team: ${team.teamName}`);
-
+            
             return payment;
           } catch (error: any) {
             console.error(`❌ [${index + 1}] ERROR creating payment for player ${playerIdStr}:`);
@@ -712,21 +665,21 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
             return null;
           }
         });
-
+        
         // Wait for all payments to be created (don't fail if some fail)
         console.log(`💰 Waiting for all payment promises to complete...`);
         const results = await Promise.allSettled(paymentPromises);
-
+        
         console.log(`\n💰 ========== PAYMENT CREATION RESULTS ==========`);
         const successful = results.filter(r => r.status === 'fulfilled' && r.value !== null).length;
         const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value === null)).length;
         const rejected = results.filter(r => r.status === 'rejected').length;
-
+        
         console.log(`💰 Total players processed: ${allPlayerIds.length}`);
         console.log(`✅ Successful payments: ${successful}`);
         console.log(`❌ Failed/Skipped: ${failed}`);
         console.log(`💥 Rejected promises: ${rejected}`);
-
+        
         // Log details of each result
         results.forEach((result, index) => {
           if (result.status === 'fulfilled' && result.value !== null) {
@@ -737,7 +690,7 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
             console.error(`❌ [${index + 1}] Payment promise rejected:`, result.reason);
           }
         });
-
+        
         console.log(`💰 ========== PAYMENT CREATION COMPLETE ==========\n`);
       } catch (paymentError: any) {
         // Log error but don't fail the invitation acceptance
@@ -759,24 +712,6 @@ export async function acceptInvite(req: NextRequest, { params }: { params: { not
       await notification.populate("league", "leagueName");
       await notification.populate("team", "teamName");
       await notification.populate("receiver", "firstName lastName email");
-
-      // 🔔 Notify superadmins that team joined league
-      try {
-        const superAdmins = await User.find({ role: "superadmin" });
-        for (const admin of superAdmins) {
-          await Notification.create({
-            sender: notification.receiver,
-            receiver: admin._id,
-            league: notification.league,
-            team: notification.team,
-            type: "INVITE_ACCEPTED_TEAM",
-            status: "accepted",
-            message: `Team ${team.teamName} has accepted the invitation to join league: ${(league as any).leagueName}`
-          });
-        }
-      } catch (e) {
-        console.error("Error notifying admins:", e);
-      }
 
       return NextResponse.json(
         {
@@ -877,86 +812,4 @@ export async function rejectInvite(req: NextRequest, { params }: { params: { not
     );
   }
 }
-
-
-/**
- * Send a general notification
- * POST /api/notification/send
- */
-export async function sendGeneralNotification(req: NextRequest) {
-  try {
-    await connectDB();
-    const decoded = await verifyUserToken(req);
-
-    const body: any = await req.json();
-    const { receiverId, type, message, isAdmin, leagueId, teamId, matchId } = body;
-
-    if (!message || (!receiverId && !isAdmin)) {
-      return NextResponse.json(
-        { error: "Message and either receiverId or isAdmin are required" },
-        { status: 400 }
-      );
-    }
-
-    const senderId = new mongoose.Types.ObjectId(decoded.userId);
-    let results = [];
-
-    if (isAdmin) {
-      // 1. Find Admins from User collection
-      const userAdmins = await User.find({
-        role: { $in: ["superadmin", "admin"] }
-      });
-
-      // 2. Find Admins from SuperAdmin collection
-      const superAdmins = await SuperAdmin.find({});
-
-      // Combine unique IDs
-      const adminIds = new Set<string>();
-      userAdmins.forEach(a => adminIds.add(a._id.toString()));
-      superAdmins.forEach(a => adminIds.add(a._id.toString()));
-
-      for (const adminId of adminIds) {
-        const notif = await Notification.create({
-          sender: senderId,
-          receiver: new mongoose.Types.ObjectId(adminId),
-          type: type || "SYSTEM_ALERT",
-          message: message,
-          league: leagueId ? new mongoose.Types.ObjectId(leagueId) : undefined,
-          team: teamId ? new mongoose.Types.ObjectId(teamId) : undefined,
-          match: matchId ? new mongoose.Types.ObjectId(matchId) : undefined,
-          status: "pending"
-        });
-        results.push(notif);
-      }
-    } else {
-      // Send to specific receiver
-      const notif = await Notification.create({
-        sender: senderId,
-        receiver: receiverId ? new mongoose.Types.ObjectId(receiverId) : undefined,
-        type: type || "MESSAGE",
-        message: message,
-        league: leagueId ? new mongoose.Types.ObjectId(leagueId) : undefined,
-        team: teamId ? new mongoose.Types.ObjectId(teamId) : undefined,
-        match: matchId ? new mongoose.Types.ObjectId(matchId) : undefined,
-        status: "pending"
-      });
-      results.push(notif);
-    }
-
-    return NextResponse.json(
-      {
-        message: "Notification(s) sent successfully",
-        count: results.length
-      },
-      { status: 201 }
-    );
-  } catch (error: any) {
-    console.error("Error in sendGeneralNotification:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to send notification" },
-      { status: 500 }
-    );
-  }
-}
-
 

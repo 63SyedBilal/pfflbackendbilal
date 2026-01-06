@@ -25,7 +25,7 @@ function getToken(req: NextRequest): string | null {
 async function verifyUserToken(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-
+  
   const decoded = verifyAccessToken(token);
   return decoded;
 }
@@ -48,7 +48,7 @@ export async function createPayment(
   console.log("   - userId:", userId, `(type: ${typeof userId})`);
   console.log("   - leagueId:", leagueId, `(type: ${typeof leagueId})`);
   console.log("   - teamId:", teamId || "N/A", `(type: ${typeof teamId})`);
-
+  
   try {
     console.log("💳 Connecting to database...");
     await connectDB();
@@ -56,7 +56,7 @@ export async function createPayment(
 
     const userObjectId = toObjectId(userId);
     const leagueObjectId = toObjectId(leagueId);
-
+    
     console.log("💳 Converted IDs:");
     console.log("   - userObjectId:", userObjectId.toString());
     console.log("   - leagueObjectId:", leagueObjectId.toString());
@@ -123,7 +123,7 @@ export async function createPayment(
 
     // Determine payment amount (per player fee)
     const amount = (league as any).perPlayerLeagueFee || 0;
-
+    
     console.log("💳 Payment calculation:");
     console.log("   - League perPlayerLeagueFee:", (league as any).perPlayerLeagueFee);
     console.log("   - Calculated amount:", amount);
@@ -206,32 +206,14 @@ export async function getMyPayment(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const leagueId = searchParams.get("leagueId");
 
-    const userId = toObjectId(decoded.userId);
-
     if (!leagueId) {
-      // If no leagueId provided, return all payments for this user
-      // This helps frontend screens that might call this endpoint without a filter
-      const allUserPayments = await Payment.find({ userId })
-        .populate({
-          path: "userId",
-          select: "firstName lastName email role",
-        })
-        .populate({
-          path: "leagueId",
-          select: "leagueName logo format startDate endDate status",
-        })
-        .sort({ createdAt: -1 });
-
       return NextResponse.json(
-        {
-          success: true,
-          message: "User payments retrieved successfully",
-          data: allUserPayments,
-        },
-        { status: 200 }
+        { success: false, error: "leagueId query parameter is required" },
+        { status: 400 }
       );
     }
 
+    const userId = toObjectId(decoded.userId);
     const leagueObjectId = toObjectId(leagueId);
 
     // Find payment
@@ -242,24 +224,32 @@ export async function getMyPayment(req: NextRequest) {
       .populate({
         path: "userId",
         select: "firstName lastName email role",
+        model: "User",
       })
       .populate({
         path: "leagueId",
-        select: "leagueName logo format startDate endDate status",
+        select: "leagueName logo format startDate endDate",
+        model: "League",
       });
 
     // If no payment exists, create one automatically
     if (!payment) {
       console.log(`No payment found for user ${userId.toString()} and league ${leagueObjectId.toString()}. Creating one...`);
-
+      
       try {
         const newPayment = await createPayment(userId, leagueObjectId);
-
+        
         // Populate the new payment
-        await newPayment.populate([
-          { path: "userId", select: "firstName lastName email role" },
-          { path: "leagueId", select: "leagueName logo format startDate endDate status" }
-        ]);
+        await newPayment.populate({
+          path: "userId",
+          select: "firstName lastName email role",
+          model: "User",
+        });
+        await newPayment.populate({
+          path: "leagueId",
+          select: "leagueName logo format startDate endDate",
+          model: "League",
+        });
 
         return NextResponse.json(
           {
@@ -314,7 +304,7 @@ export async function updatePayment(req: NextRequest) {
     await connectDB();
     const decoded = await verifyUserToken(req);
 
-    const body: any = await req.json();
+    const body = await req.json();
     const { leagueId, transactionId, paymentMethod } = body;
 
     if (!leagueId) {
@@ -389,10 +379,16 @@ export async function updatePayment(req: NextRequest) {
     await payment.save();
 
     // Populate for response
-    await payment.populate([
-      { path: "userId", select: "firstName lastName email role" },
-      { path: "leagueId", select: "leagueName logo format startDate endDate status" }
-    ]);
+    await payment.populate({
+      path: "userId",
+      select: "firstName lastName email role",
+      model: "User",
+    });
+    await payment.populate({
+      path: "leagueId",
+      select: "leagueName logo format startDate endDate",
+      model: "League",
+    });
 
     console.log(`✅ Payment updated to paid for user ${userId.toString()} in league ${leagueObjectId.toString()}`);
 

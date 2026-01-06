@@ -1,12 +1,4 @@
 import mongoose from "mongoose"
-import "@/modules/user";
-import "@/modules/team";
-import "@/modules/league";
-import "@/modules/match";
-import "@/modules/notification";
-import "@/modules/superadmin";
-import "@/modules/payment";
-import "@/modules/leaderboard";
 
 // Get MongoDB URI from environment variable or use fallback
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://zubairhashmi423_db_user:zubairkhann123@cluster0.ikrhunq.mongodb.net/"
@@ -69,7 +61,7 @@ if (mongoose.connection.readyState === 1 || mongoose.connection.readyState === 2
 
 export async function connectDB() {
   console.log("connectDB called")
-
+  
   // Check if already connected to the correct database
   if (cached.conn) {
     const currentDb = cached.conn.connection.db?.databaseName
@@ -88,13 +80,13 @@ export async function connectDB() {
     console.log("Creating new connection promise")
     // Setup connection listeners
     setupConnectionListeners()
-
+    
     // Use the URI as-is - mongoose will use dbName option to connect to correct database
     // This prevents URI duplication issues
     const uri = MONGODB_URI.trim()
 
     console.log("Connecting to MongoDB with URI:", uri.replace(/\/\/[^:]+:[^@]+@/, "//***:***@")) // Hide credentials in logs
-
+    
     cached.promise = mongoose.connect(uri, {
       dbName: "pffl", // Explicitly set database name
       serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
