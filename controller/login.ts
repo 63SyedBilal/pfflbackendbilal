@@ -11,7 +11,8 @@ import { generateAccessToken } from "@/lib/jwt";
 export async function login(req: NextRequest) {
   try {
     await connectDB();
-    const { email, password } = await req.json();
+    const body: any = await req.json();
+    const { email, password } = body;
 
     console.log("🔐 Login attempt for email:", email);
 
@@ -22,17 +23,17 @@ export async function login(req: NextRequest) {
     const emailLower = email.toLowerCase().trim();
 
     // First, try to find superadmin
-    const superAdmin = await SuperAdmin.findOne({ 
-      email: emailLower 
+    const superAdmin = await SuperAdmin.findOne({
+      email: emailLower
     }).select("+password");
-    
+
     if (superAdmin) {
       console.log("✅ SuperAdmin found:", superAdmin.email);
       console.log("🔑 Password field exists:", !!superAdmin.password);
-      
+
       if (!superAdmin.password) {
         console.log("❌ Password field is missing for superadmin:", superAdmin.email);
-        return NextResponse.json({ 
+        return NextResponse.json({
           error: "Account setup incomplete. Please reset your password.",
           errorType: "password_not_set"
         }, { status: 401 });
@@ -40,10 +41,10 @@ export async function login(req: NextRequest) {
 
       const isPasswordValid = await verifyPassword(password, superAdmin.password);
       console.log("🔐 Password verification result:", isPasswordValid);
-      
+
       if (!isPasswordValid) {
         console.log("❌ Password verification failed for superadmin:", superAdmin.email);
-        return NextResponse.json({ 
+        return NextResponse.json({
           error: "Incorrect password. Please try again.",
           errorType: "invalid_password"
         }, { status: 401 });
@@ -72,16 +73,16 @@ export async function login(req: NextRequest) {
 
     // If not superadmin, try to find regular user
     console.log("🔍 Searching for user with email:", emailLower);
-    const user = await User.findOne({ 
+    const user = await User.findOne({
       email: emailLower
     }).select("+password");
-    
+
     if (!user) {
       console.log("❌ User not found for email:", emailLower);
       // Check if any users exist
       const userCount = await User.countDocuments({});
       console.log("📊 Total users in database:", userCount);
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: "Email does not exist.",
         errorType: "email_not_found"
       }, { status: 401 });
@@ -94,7 +95,7 @@ export async function login(req: NextRequest) {
 
     if (!user.password) {
       console.log("❌ Password field is missing for user:", user.email);
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: "Account setup incomplete. Please reset your password.",
         errorType: "password_not_set"
       }, { status: 401 });
@@ -106,24 +107,24 @@ export async function login(req: NextRequest) {
     console.log("🔑 Stored hash starts with $2:", user.password.startsWith("$2"));
     console.log("🔑 Stored hash length:", user.password.length);
     console.log("🔑 Stored hash preview:", user.password.substring(0, 30) + "...");
-    
+
     const isPasswordValid = await verifyPassword(password, user.password);
     console.log("🔐 Password verification result:", isPasswordValid);
-    
+
     if (!isPasswordValid) {
       console.log("❌ Password verification failed for user:", user.email);
       console.log("🔍 Debugging info:");
       console.log("  - Input password:", password);
       console.log("  - Stored hash type:", user.password.startsWith("$2a$") ? "bcrypt" : "unknown");
       console.log("  - Hash length:", user.password.length);
-      
+
       // Try to verify if password might be stored as plain text (shouldn't happen, but check)
       if (user.password === password) {
         console.log("⚠️ WARNING: Password appears to be stored as plain text!");
         console.log("⚠️ This is a security issue. Password should be hashed.");
       }
-      
-      return NextResponse.json({ 
+
+      return NextResponse.json({
         error: "Password is wrong",
         errorType: "invalid_password"
       }, { status: 401 });

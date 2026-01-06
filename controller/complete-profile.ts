@@ -26,10 +26,11 @@ export async function completeProfile(req: NextRequest) {
     const token = authHeader.substring(7);
     const decoded = verifyAccessToken(token);
 
-    const { 
-      firstName, 
-      lastName, 
-      phone, 
+    const body: any = await req.json();
+    const {
+      firstName,
+      lastName,
+      phone,
       password,
       // Profile fields - now stored in User
       profileImage,
@@ -37,7 +38,7 @@ export async function completeProfile(req: NextRequest) {
       jerseyNumber,
       emergencyContactName,
       emergencyPhone,
-    } = await req.json();
+    } = body;
 
     // Find user
     const user = await User.findById(decoded.userId);
@@ -49,7 +50,7 @@ export async function completeProfile(req: NextRequest) {
     if (firstName && firstName.trim() !== "") {
       user.firstName = firstName.trim();
     }
-    
+
     if (lastName && lastName.trim() !== "") {
       user.lastName = lastName.trim();
     }
@@ -89,19 +90,19 @@ export async function completeProfile(req: NextRequest) {
         );
       }
     }
-    
+
     if (position !== undefined) {
       user.position = position;
     }
-    
+
     if (jerseyNumber !== undefined) {
       user.jerseyNumber = jerseyNumber;
     }
-    
+
     if (emergencyContactName !== undefined) {
       user.emergencyContactName = emergencyContactName;
     }
-    
+
     if (emergencyPhone !== undefined) {
       user.emergencyPhone = emergencyPhone;
     }

@@ -39,7 +39,12 @@ export async function GET(req: NextRequest) {
 
     // Filter by status if specified
     if (statusFilter !== "all") {
-      query.status = statusFilter;
+      // Map frontend status names to backend status names
+      let backendStatus = statusFilter;
+      if (statusFilter === "completed") backendStatus = "paid";
+      if (statusFilter === "pending") backendStatus = "unpaid";
+
+      query.status = backendStatus;
     }
 
     // Find all payments for the user
