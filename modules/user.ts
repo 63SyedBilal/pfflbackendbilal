@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { hashPassword, verifyPassword } from "@/lib/auth";
 
-const UserSchema = new mongoose.Schema(
+export const UserSchema = new mongoose.Schema(
   {
     firstName: {
       type: String,
@@ -61,6 +61,10 @@ const UserSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    totalPoints: {
+      type: Number,
+      default: 0
+    },
   },
   { timestamps: true }
 );
@@ -100,11 +104,7 @@ UserSchema.methods.comparePassword = async function (candidatePassword: string) 
 };
 
 // Prevent model overwrite error in Next.js development
-// Delete the model if it exists to force recompilation with new schema
-if (mongoose.models.User) {
-  delete mongoose.models.User;
-}
-
-const User = mongoose.model("User", UserSchema);
+// Use existing model if available, otherwise create new one
+const User = mongoose.models.User || mongoose.model("User", UserSchema);
 
 export default User;

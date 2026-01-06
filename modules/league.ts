@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const LeagueSchema = new mongoose.Schema(
+export const LeagueSchema = new mongoose.Schema(
   {
     leagueName: {
       type: String,
@@ -75,13 +75,7 @@ const LeagueSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Prevent model overwrite error in Next.js development
-// Delete the model if it exists to force recompilation with new schema
-if (mongoose.models.League) {
-  delete mongoose.models.League;
-}
-
-const League = mongoose.model("League", LeagueSchema);
+const League = mongoose.models.League || mongoose.model("League", LeagueSchema);
 
 export default League;
 

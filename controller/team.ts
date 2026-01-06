@@ -28,7 +28,8 @@ export async function createTeam(req: NextRequest) {
     await connectDB();
     const decoded = await verifyUser(req);
 
-    const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = await req.json();
+    const body: any = await req.json();
+    const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = body;
 
     // Verify user is a captain
     const user = await User.findById(decoded.userId);
@@ -307,7 +308,8 @@ export async function updateTeam(req: NextRequest, { params }: { params: { id: s
     const decoded = await verifyUser(req);
 
     const { id } = params;
-    const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = await req.json();
+    const body: any = await req.json();
+    const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = body;
 
     const team = await Team.findById(id);
     if (!team) {
@@ -462,7 +464,8 @@ export async function addPlayer(req: NextRequest, { params }: { params: { id: st
     const decoded = await verifyUser(req);
 
     const { id } = params;
-    const { playerId, format } = await req.json();
+    const body: any = await req.json();
+    const { playerId, format } = body;
 
     if (!playerId || !format) {
       return NextResponse.json({ error: "Player ID and format are required" }, { status: 400 });

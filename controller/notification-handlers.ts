@@ -5,6 +5,7 @@ import Team from "@/modules/team";
 import User from "@/modules/user";
 import League from "@/modules/league";
 import SuperAdmin from "@/modules/superadmin";
+import Match from "@/modules/match";
 import { verifyAccessToken } from "@/lib/jwt";
 import { createPayment } from "@/controller/payment";
 import mongoose from "mongoose";
@@ -28,7 +29,7 @@ function getToken(req: NextRequest): string | null {
 async function verifyUserToken(req: NextRequest) {
   const token = getToken(req);
   if (!token) throw new Error("No token provided");
-  
+
   const decoded = verifyAccessToken(token);
   return decoded;
 }
@@ -50,12 +51,10 @@ export async function getAllNotifications(req: NextRequest) {
 
     // Find all pending notifications for the user
     // Use mongoose's ObjectId matching which handles both ObjectId and string
-    const receiverQuery = userId instanceof mongoose.Types.ObjectId 
-      ? userId 
-      : new mongoose.Types.ObjectId(userId.toString());
-    
+    const receiverQuery = userId;
+
     console.log(`🔍 Searching for notifications with receiver: ${receiverQuery.toString()}, status: pending`);
-    
+
     // Also try to find ALL notifications (pending or not) for debugging
     const allNotificationsForUser = await Notification.find({
       receiver: receiverQuery
@@ -69,7 +68,7 @@ export async function getAllNotifications(req: NextRequest) {
         receiver: n.receiver?.toString(),
         receiverType: typeof n.receiver
       })));
-      
+
       // Also check if receiver matches as string
       const receiverString = receiverQuery.toString();
       const matchingAsString = allNotificationsForUser.filter((n: any) => {
@@ -83,7 +82,7 @@ export async function getAllNotifications(req: NextRequest) {
         receiver: decoded.userId.toString()
       }).lean();
       console.log(`📊 Notifications with receiver as string ID: ${receiverStringQuery.length}`);
-      
+
       // Try with just the ObjectId string
       const receiverObjectIdString = receiverQuery.toString();
       const receiverObjectIdQuery = await Notification.find({
@@ -91,7 +90,7 @@ export async function getAllNotifications(req: NextRequest) {
       }).lean();
       console.log(`📊 Notifications with receiver as ObjectId string: ${receiverObjectIdQuery.length}`);
     }
-    
+
     const notifications = await Notification.find({
       receiver: receiverQuery,
       status: "pending"
@@ -111,81 +110,58 @@ export async function getAllNotifications(req: NextRequest) {
         select: "teamAName teamBName gameDate gameTime venue status",
         model: "Match"
       })
-      .populate({
-        path: "receiver",
-        select: "firstName lastName email",
-        model: "User"
-      })
       .lean() // Convert to plain objects to avoid Mongoose document issues
       .sort({ createdAt: -1 });
 
     console.log(`Found ${notifications.length} raw notifications for user ${userId.toString()}`);
 
-    // Manually populate sender from either User or SuperAdmin collection
+    // Manually populate sender and receiver from either User or SuperAdmin collection
     // Since we're using .lean(), notifications are already plain objects
     for (let i = 0; i < notifications.length; i++) {
       const notification = notifications[i] as any;
+
+      // 1. POPULATE SENDER
       if (notification.sender) {
         // Check if sender is already populated (has email or firstName)
         const isAlreadyPopulated = notification.sender?.email || notification.sender?.firstName;
-        if (isAlreadyPopulated) {
-          console.log(`✅ Sender already populated for notification ${notification._id}`);
-          continue;
-        }
-        
-        const senderId = notification.sender instanceof mongoose.Types.ObjectId 
-          ? notification.sender 
-          : new mongoose.Types.ObjectId(notification.sender.toString());
-        
-        console.log(`🔍 Populating sender for notification ${notification._id}, senderId: ${senderId.toString()}`);
-        
-        // Create a plain object (not Mongoose document) to ensure assignment works
-        let populatedSender: any = null;
-        
-        // Try SuperAdmin first (since league invites are from SuperAdmin)
-        let superAdminDoc = await SuperAdmin.findById(senderId);
-        if (superAdminDoc) {
-          console.log(`✅ Found SuperAdmin sender: ${superAdminDoc.email}`);
-          populatedSender = {
-            _id: superAdminDoc._id.toString(),
-            firstName: "Super",
-            lastName: "Admin",
-            email: superAdminDoc.email || "admin@pffl.com",
-            role: superAdminDoc.role || "superadmin"
-          };
-        } else {
-          // Try User as fallback
-          let senderDoc = await User.findById(senderId);
-          if (senderDoc) {
-            console.log(`✅ Found User sender: ${senderDoc.email}`);
-            populatedSender = {
-              _id: senderDoc._id.toString(),
-              firstName: senderDoc.firstName || "",
-              lastName: senderDoc.lastName || "",
-              email: senderDoc.email || "",
-              role: senderDoc.role || "user"
-            };
-          } else {
-            // If sender not found in both collections, create a fallback object
-            console.warn(`⚠️ Sender not found in SuperAdmin or User for notification ${notification._id}, senderId: ${senderId.toString()}`);
-            populatedSender = {
-              _id: senderId.toString(),
+        if (!isAlreadyPopulated) {
+          const senderId = notification.sender instanceof mongoose.Types.ObjectId
+            ? notification.sender
+            : new mongoose.Types.ObjectId(notification.sender.toString());
+
+          // Try SuperAdmin first
+          let superAdminDoc = await SuperAdmin.findById(senderId);
+          if (superAdminDoc) {
+            notification.sender = {
+              _id: superAdminDoc._id.toString(),
               firstName: "Super",
               lastName: "Admin",
-              email: "admin@pffl.com",
-              role: "superadmin"
+              email: superAdminDoc.email || "admin@pffl.com",
+              role: superAdminDoc.role || "superadmin"
             };
+          } else {
+            // Try User
+            let senderDoc = await User.findById(senderId);
+            if (senderDoc) {
+              notification.sender = {
+                _id: senderDoc._id.toString(),
+                firstName: senderDoc.firstName || "",
+                lastName: senderDoc.lastName || "",
+                email: senderDoc.email || "",
+                role: senderDoc.role || "user"
+              };
+            } else {
+              notification.sender = {
+                _id: senderId.toString(),
+                firstName: "Super",
+                lastName: "Admin",
+                email: "admin@pffl.com",
+                role: "superadmin"
+              };
+            }
           }
         }
-        
-        // Assign the populated sender (plain object assignment should work now)
-        notification.sender = populatedSender;
-        
-        console.log(`📝 After population, sender:`, JSON.stringify(populatedSender));
-        console.log(`📝 Verification - notification.sender.email: ${notification.sender.email}`);
       } else {
-        console.warn(`⚠️ Notification ${notification._id} has no sender field`);
-        // Create fallback sender
         notification.sender = {
           _id: 'unknown',
           firstName: "Super",
@@ -193,6 +169,42 @@ export async function getAllNotifications(req: NextRequest) {
           email: "admin@pffl.com",
           role: "superadmin"
         };
+      }
+
+      // 2. POPULATE RECEIVER
+      if (notification.receiver) {
+        const isAlreadyPopulated = notification.receiver?.email || notification.receiver?.firstName;
+        if (!isAlreadyPopulated) {
+          const receiverId = notification.receiver instanceof mongoose.Types.ObjectId
+            ? notification.receiver
+            : new mongoose.Types.ObjectId(notification.receiver.toString());
+
+          // Try User first (most receivers are users)
+          let receiverDoc = await User.findById(receiverId);
+          if (receiverDoc) {
+            notification.receiver = {
+              _id: receiverDoc._id.toString(),
+              firstName: receiverDoc.firstName || "",
+              lastName: receiverDoc.lastName || "",
+              email: receiverDoc.email || "",
+              role: receiverDoc.role || "user"
+            };
+          } else {
+            // Try SuperAdmin
+            let superAdminDoc = await SuperAdmin.findById(receiverId);
+            if (superAdminDoc) {
+              notification.receiver = {
+                _id: superAdminDoc._id.toString(),
+                firstName: "Super",
+                lastName: "Admin",
+                email: superAdminDoc.email || "admin@pffl.com",
+                role: "superadmin"
+              };
+            }
+            // If still not found, notification.receiver stays as ID which might be filtered out
+            // but at least we tried both collections.
+          }
+        }
       }
     }
 
@@ -214,18 +226,18 @@ export async function getAllNotifications(req: NextRequest) {
     const validNotifications = notifications.filter((n: any) => {
       // Check sender - ensure it's a proper object with email or firstName
       const isObjectId = n.sender instanceof mongoose.Types.ObjectId;
-      const hasRequiredProps = n.sender && 
-                               typeof n.sender === 'object' &&
-                               !isObjectId &&
-                               (n.sender.email || n.sender.firstName);
-      
+      const hasRequiredProps = n.sender &&
+        typeof n.sender === 'object' &&
+        !isObjectId &&
+        (n.sender.email || n.sender.firstName);
+
       if (!hasRequiredProps || isObjectId) {
         // Sender is not properly populated - use fallback
         console.warn(`⚠️ Sender not properly populated for notification ${n._id}, using fallback. Current sender:`, n.sender);
-        const senderId = isObjectId ? n.sender.toString() : 
-                        (typeof n.sender === 'string' ? n.sender : 
-                         (n.sender?._id ? n.sender._id.toString() : 
-                          n.sender?.toString() || 'unknown'));
+        const senderId = isObjectId ? n.sender.toString() :
+          (typeof n.sender === 'string' ? n.sender :
+            (n.sender?._id ? n.sender._id.toString() :
+              n.sender?.toString() || 'unknown'));
         n.sender = {
           _id: senderId,
           firstName: "Super",
@@ -235,7 +247,7 @@ export async function getAllNotifications(req: NextRequest) {
         };
         console.log(`✅ Set fallback sender for notification ${n._id}:`, n.sender);
       }
-      
+
       // Final check - sender must be an object with email or firstName
       if (!n.sender || !(n.sender.email || n.sender.firstName)) {
         console.warn("❌ Filtering out notification with invalid sender after fix attempt:", {
@@ -247,7 +259,7 @@ export async function getAllNotifications(req: NextRequest) {
         });
         return false;
       }
-      
+
       // Check receiver
       if (!n.receiver) {
         console.warn("Filtering out notification with null receiver:", {
@@ -256,16 +268,16 @@ export async function getAllNotifications(req: NextRequest) {
         });
         return false;
       }
-      
+
       // For league invites, league must exist
 
       if (n.type.includes("LEAGUE") && n.type !== "GAME_ASSIGNED" && !n.league) {
         console.warn("Filtering out league notification with null league:", n._id);
         return false;
       }
-      // For GAME_ASSIGNED, match should exist (league is optional but recommended)
-      if (n.type === "GAME_ASSIGNED" && !n.match) {
-        console.warn("Filtering out GAME_ASSIGNED notification with null match:", n._id);
+      // For GAME_ASSIGNED and STATS_SUBMITTED, match should exist
+      if ((n.type === "GAME_ASSIGNED" || n.type === "STATS_SUBMITTED") && !n.match) {
+        console.warn(`Filtering out ${n.type} notification with null match:`, n._id);
         return false;
       }
       // For team invites, team must exist
@@ -280,7 +292,7 @@ export async function getAllNotifications(req: NextRequest) {
           return false;
         }
       }
-      
+
       // For LEAGUE_TEAM_INVITE, team must also exist
       if (n.type === "LEAGUE_TEAM_INVITE" && !n.team) {
         console.warn("❌ Filtering out LEAGUE_TEAM_INVITE notification with null team:", {
@@ -290,7 +302,7 @@ export async function getAllNotifications(req: NextRequest) {
         });
         return false;
       }
-      
+
       // For team invites, team must exist (only TEAM_INVITE, not LEAGUE_* types)
 
       if (n.type === "TEAM_INVITE" && !n.team) {
@@ -300,10 +312,10 @@ export async function getAllNotifications(req: NextRequest) {
         });
         return false;
       }
-      
+
       // Note: LEAGUE_REFEREE_INVITE and LEAGUE_STATKEEPER_INVITE don't need team field
       // They only need league, which is already checked above
-      
+
       console.log(`✅ Notification ${n._id} (${n.type}) passed all filters`);
       return true;
     });
@@ -343,7 +355,7 @@ export async function acceptNotification(req: NextRequest) {
     await connectDB();
     const decoded = await verifyUserToken(req);
 
-    const { notificationId } = await req.json();
+    const { notificationId } = await req.json() as any;
 
     if (!notificationId) {
       return NextResponse.json(
@@ -365,7 +377,7 @@ export async function acceptNotification(req: NextRequest) {
     }
 
     // Verify the notification belongs to the logged-in user
-    const receiverId = toObjectId(notification.receiver.toString());
+    const receiverId = toObjectId((notification as any).receiver.toString());
     if (receiverId.toString() !== userId.toString()) {
       return NextResponse.json(
         { success: false, error: "You can only accept your own invites" },
@@ -385,9 +397,15 @@ export async function acceptNotification(req: NextRequest) {
 
     // Handle LEAGUE_REFEREE_INVITE
     if (notificationType === "LEAGUE_REFEREE_INVITE") {
-      const leagueId = toObjectId(notification.league.toString());
+      if (!notification.league) {
+        return NextResponse.json(
+          { success: false, error: "League ID is missing in the notification" },
+          { status: 400 }
+        );
+      }
+      const leagueId = toObjectId((notification as any).league.toString());
       const league = await League.findById(leagueId);
-      
+
       if (!league) {
         return NextResponse.json(
           { success: false, error: "League not found" },
@@ -432,29 +450,34 @@ export async function acceptNotification(req: NextRequest) {
       await notification.save();
 
       // Get original sender (admin) from notification
-      const originalSenderId = toObjectId(notification.sender.toString());
-      
+      if (!(notification as any).sender) {
+        console.warn(`⚠️ Notification ${notification._id} has no sender`);
+      }
+      const originalSenderId = (notification as any).sender ? toObjectId((notification as any).sender.toString()) : null;
+
       // Create notification for admin that invite was accepted
-      try {
-        const adminNotification = await Notification.create({
-          sender: userId, // The user who accepted (referee)
-          receiver: originalSenderId, // The admin who sent the invite
-          league: leagueId,
-          type: "INVITE_ACCEPTED_REFEREE",
-          status: "pending"
-        });
-        console.log(`✅ Admin notification created for referee acceptance: ${adminNotification._id}`);
-      } catch (notifError: any) {
-        console.error("❌ Error creating admin notification:", notifError);
-        // Don't fail the acceptance if notification creation fails
+      if (originalSenderId) {
+        try {
+          const adminNotification = await Notification.create({
+            sender: userId, // The user who accepted (referee)
+            receiver: originalSenderId, // The admin who sent the invite
+            league: leagueId,
+            type: "INVITE_ACCEPTED_REFEREE",
+            status: "pending"
+          });
+          console.log(`✅ Admin notification created for referee acceptance: ${adminNotification._id}`);
+        } catch (notifError: any) {
+          console.error("❌ Error creating admin notification:", notifError);
+          // Don't fail the acceptance if notification creation fails
+        }
       }
 
       await notification.populate("sender", "firstName lastName email");
       await notification.populate("league", "leagueName logo");
       await notification.populate("receiver", "firstName lastName email");
 
-      const roleChangeMessage = wasFreeAgent 
-        ? " Your role has been updated from free-agent to referee." 
+      const roleChangeMessage = wasFreeAgent
+        ? " Your role has been updated from free-agent to referee."
         : "";
 
       return NextResponse.json(
@@ -469,9 +492,15 @@ export async function acceptNotification(req: NextRequest) {
 
     // Handle LEAGUE_STATKEEPER_INVITE
     if (notificationType === "LEAGUE_STATKEEPER_INVITE") {
-      const leagueId = toObjectId(notification.league.toString());
+      if (!notification.league) {
+        return NextResponse.json(
+          { success: false, error: "League ID is missing in the notification" },
+          { status: 400 }
+        );
+      }
+      const leagueId = toObjectId((notification as any).league.toString());
       const league = await League.findById(leagueId);
-      
+
       if (!league) {
         return NextResponse.json(
           { success: false, error: "League not found" },
@@ -496,21 +525,26 @@ export async function acceptNotification(req: NextRequest) {
       await notification.save();
 
       // Get original sender (admin) from notification
-      const originalSenderId = toObjectId(notification.sender.toString());
-      
+      if (!(notification as any).sender) {
+        console.warn(`⚠️ Notification ${notification._id} has no sender`);
+      }
+      const originalSenderId = (notification as any).sender ? toObjectId((notification as any).sender.toString()) : null;
+
       // Create notification for admin that invite was accepted
-      try {
-        const adminNotification = await Notification.create({
-          sender: userId, // The user who accepted (stat keeper)
-          receiver: originalSenderId, // The admin who sent the invite
-          league: leagueId,
-          type: "INVITE_ACCEPTED_STATKEEPER",
-          status: "pending"
-        });
-        console.log(`✅ Admin notification created for stat keeper acceptance: ${adminNotification._id}`);
-      } catch (notifError: any) {
-        console.error("❌ Error creating admin notification:", notifError);
-        // Don't fail the acceptance if notification creation fails
+      if (originalSenderId) {
+        try {
+          const adminNotification = await Notification.create({
+            sender: userId, // The user who accepted (stat keeper)
+            receiver: originalSenderId, // The admin who sent the invite
+            league: leagueId,
+            type: "INVITE_ACCEPTED_STATKEEPER",
+            status: "pending"
+          });
+          console.log(`✅ Admin notification created for stat keeper acceptance: ${adminNotification._id}`);
+        } catch (notifError: any) {
+          console.error("❌ Error creating admin notification:", notifError);
+          // Don't fail the acceptance if notification creation fails
+        }
       }
 
       await notification.populate("sender", "firstName lastName email");
@@ -529,9 +563,21 @@ export async function acceptNotification(req: NextRequest) {
 
     // Handle LEAGUE_TEAM_INVITE
     if (notificationType === "LEAGUE_TEAM_INVITE") {
-      const leagueId = toObjectId(notification.league.toString());
+      if (!notification.league) {
+        return NextResponse.json(
+          { success: false, error: "League ID is missing in the notification" },
+          { status: 400 }
+        );
+      }
+      if (!notification.team) {
+        return NextResponse.json(
+          { success: false, error: "Team ID is missing in the notification" },
+          { status: 400 }
+        );
+      }
+      const leagueId = toObjectId((notification as any).league.toString());
       const league = await League.findById(leagueId);
-      
+
       if (!league) {
         return NextResponse.json(
           { success: false, error: "League not found" },
@@ -539,9 +585,9 @@ export async function acceptNotification(req: NextRequest) {
         );
       }
 
-      const teamId = toObjectId(notification.team.toString());
+      const teamId = toObjectId((notification as any).team.toString());
       const team = await Team.findById(teamId);
-      
+
       if (!team) {
         return NextResponse.json(
           { success: false, error: "Team not found" },
@@ -584,30 +630,30 @@ export async function acceptNotification(req: NextRequest) {
         const squad5v5Ids = (team.squad5v5 || []).map((id: any) => id.toString());
         const squad7v7Ids = (team.squad7v7 || []).map((id: any) => id.toString());
         const captainId = team.captain.toString();
-        
+
         // Combine all player IDs (including captain) and remove duplicates
         const allPlayerIds = [...new Set([...squad5v5Ids, ...squad7v7Ids, captainId])];
-        
+
         console.log(`💰 Creating payments for ${allPlayerIds.length} players in team ${team.teamName} for league ${league.leagueName}`);
-        
+
         // Create payment for each player
         const paymentPromises = allPlayerIds.map(async (playerIdStr: string) => {
           try {
             const playerId = toObjectId(playerIdStr);
-            
+
             // Get user to check role
             const player = await User.findById(playerId);
             if (!player) {
               console.warn(`⚠️ Player not found: ${playerIdStr}`);
               return null;
             }
-            
+
             // Only create payment for players and captains, skip referees and stat-keepers
             if (player.role !== "player" && player.role !== "captain" && player.role !== "free-agent") {
               console.log(`⏭️ Skipping payment for ${player.email} (role: ${player.role})`);
               return null;
             }
-            
+
             // Create payment
             const payment = await createPayment(playerId, leagueId, teamId);
             console.log(`✅ Payment created for ${player.email} (${player.role}): $${payment.amount}`);
@@ -617,7 +663,7 @@ export async function acceptNotification(req: NextRequest) {
             return null;
           }
         });
-        
+
         // Wait for all payments to be created (don't fail if some fail)
         await Promise.allSettled(paymentPromises);
         console.log(`✅ Payment creation process completed for team ${team.teamName}`);
@@ -631,22 +677,27 @@ export async function acceptNotification(req: NextRequest) {
       await notification.save();
 
       // Get original sender (admin) from notification
-      const originalSenderId = toObjectId(notification.sender.toString());
-      
+      if (!(notification as any).sender) {
+        console.warn(`⚠️ Notification ${notification._id} has no sender`);
+      }
+      const originalSenderId = (notification as any).sender ? toObjectId((notification as any).sender.toString()) : null;
+
       // Create notification for admin that invite was accepted
-      try {
-        const adminNotification = await Notification.create({
-          sender: userId, // The captain who accepted
-          receiver: originalSenderId, // The admin who sent the invite
-          league: leagueId,
-          team: teamId,
-          type: "INVITE_ACCEPTED_TEAM",
-          status: "pending"
-        });
-        console.log(`✅ Admin notification created for team acceptance: ${adminNotification._id}`);
-      } catch (notifError: any) {
-        console.error("❌ Error creating admin notification:", notifError);
-        // Don't fail the acceptance if notification creation fails
+      if (originalSenderId) {
+        try {
+          const adminNotification = await Notification.create({
+            sender: userId, // The captain who accepted
+            receiver: originalSenderId, // The admin who sent the invite
+            league: leagueId,
+            team: teamId,
+            type: "INVITE_ACCEPTED_TEAM",
+            status: "pending"
+          });
+          console.log(`✅ Admin notification created for team acceptance: ${adminNotification._id}`);
+        } catch (notifError: any) {
+          console.error("❌ Error creating admin notification:", notifError);
+          // Don't fail the acceptance if notification creation fails
+        }
       }
 
       await notification.populate("sender", "firstName lastName email");
@@ -666,9 +717,15 @@ export async function acceptNotification(req: NextRequest) {
 
     // Handle TEAM_INVITE (existing functionality)
     if (notificationType === "TEAM_INVITE") {
-      const teamId = toObjectId(notification.team.toString());
+      if (!notification.team) {
+        return NextResponse.json(
+          { success: false, error: "Team ID is missing in the notification" },
+          { status: 400 }
+        );
+      }
+      const teamId = toObjectId((notification as any).team.toString());
       const team = await Team.findById(teamId);
-      
+
       if (!team) {
         return NextResponse.json(
           { success: false, error: "Team not found" },
@@ -686,7 +743,7 @@ export async function acceptNotification(req: NextRequest) {
 
       const squadField = format === "5v5" ? "squad5v5" : "squad7v7";
       const squadPlayers = (team as any)[squadField].map((p: any) => p.toString());
-      
+
       if (squadPlayers.includes(userId.toString())) {
         return NextResponse.json(
           { success: false, error: `You are already in the ${format} squad for this team` },
@@ -758,7 +815,7 @@ export async function rejectNotification(req: NextRequest) {
     await connectDB();
     const decoded = await verifyUserToken(req);
 
-    const { notificationId } = await req.json();
+    const { notificationId } = await req.json() as any;
 
     if (!notificationId) {
       return NextResponse.json(
