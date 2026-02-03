@@ -681,6 +681,30 @@ Display Results          Return JSON Response     Data Storage
 - `GET /api/superadmin/stats` - Get statistics
 - `GET /api/superadmin/payments` - Get all payments
 
+### Referee & Stat Keeper Operations
+
+**Referee Endpoints:**
+- `PUT /api/match/[id]` - Main match update (attendance, time, venue)
+- `POST /api/match/[id]/toss` - Record coin toss result
+- `POST /api/match/[id]/halftime` - Mark half time (swaps sides)
+- `POST /api/match/[id]/fulltime` - Mark full time (swaps sides)
+- `POST /api/match/[id]/overtime` - Mark overtime
+
+**Stat Keeper Endpoints:**
+- `POST /api/match/[id]/action` - **Add Game Action** (Touchdown, Safety, etc.) creates timeline event, updates score, player stats, team stats, and leaderboard.
+- `POST /api/stats` - Manual player stat correction
+- `POST /api/stats/submit` - Submit stats for admin approval
+
+**Stat Approval Workflow:**
+- `POST /api/stats/approve` - Approve stats (Superadmin)
+- `POST /api/stats/reject` - Reject stats for correction
+
+**State Updates Logic:**
+When an action is added (e.g., Touchdown):
+1. **Match**: Updates scores, adds to timeline, and increments stats in `playerStats` and `teamStats`.
+2. **Leaderboard**: Automatically recalculates points scored and point differences.
+3. **User Profile**: Increments the player's cumulative `totalPoints`.
+
 ---
 
 ## Development Workflow
