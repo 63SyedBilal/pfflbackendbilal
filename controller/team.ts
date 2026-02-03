@@ -28,7 +28,8 @@ export async function createTeam(req: NextRequest) {
     await connectDB();
     const decoded = await verifyUser(req);
 
-    const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = await req.json();
+    const body: any = await req.json();
+    const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = body;
 
     // Verify user is a captain
     const user = await User.findById(decoded.userId);
@@ -131,10 +132,10 @@ export async function createTeam(req: NextRequest) {
 
     // Populate captain and squads
     const populatedTeam = await Team.findById((team as any)._id)
-      .populate("captain", "firstName lastName email role")
-      .populate("squad5v5", "firstName lastName email role")
-      .populate("squad7v7", "firstName lastName email role")
-      .populate("players", "firstName lastName email role");
+      .populate("captain", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("squad5v5", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("squad7v7", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("players", "firstName lastName email role profileImage position jerseyNumber");
 
     return NextResponse.json(
       {
@@ -171,10 +172,10 @@ export async function getTeam(req: NextRequest, { params }: { params: { id: stri
     const { id } = params;
 
     const team = await Team.findById(id)
-      .populate("captain", "firstName lastName email role")
-      .populate("squad5v5", "firstName lastName email role")
-      .populate("squad7v7", "firstName lastName email role")
-      .populate("players", "firstName lastName email role");
+      .populate("captain", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("squad5v5", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("squad7v7", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("players", "firstName lastName email role profileImage position jerseyNumber");
 
     if (!team) {
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
@@ -207,10 +208,10 @@ export async function getTeamByCode(req: NextRequest, { params }: { params: { co
     const { code } = params;
 
     const team = await Team.findOne({ enterCode: code })
-      .populate("captain", "firstName lastName email role")
-      .populate("squad5v5", "firstName lastName email role")
-      .populate("squad7v7", "firstName lastName email role")
-      .populate("players", "firstName lastName email role");
+      .populate("captain", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("squad5v5", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("squad7v7", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("players", "firstName lastName email role profileImage position jerseyNumber");
 
     if (!team) {
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
@@ -263,10 +264,10 @@ export async function getAllTeams(req: NextRequest) {
     }
 
     const teams = await Team.find(query)
-      .populate("captain", "firstName lastName email role")
-      .populate("squad5v5", "firstName lastName email role")
-      .populate("squad7v7", "firstName lastName email role")
-      .populate("players", "firstName lastName email role")
+      .populate("captain", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("squad5v5", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("squad7v7", "firstName lastName email role profileImage position jerseyNumber")
+      .populate("players", "firstName lastName email role profileImage position jerseyNumber")
       .sort({ createdAt: -1 })
       .exec();
 
@@ -307,7 +308,8 @@ export async function updateTeam(req: NextRequest, { params }: { params: { id: s
     const decoded = await verifyUser(req);
 
     const { id } = params;
-    const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = await req.json();
+    const body: any = await req.json();
+    const { teamName, enterCode, location, skillLevel, image, squad5v5, squad7v7 } = body;
 
     const team = await Team.findById(id);
     if (!team) {
@@ -396,8 +398,8 @@ export async function updateTeam(req: NextRequest, { params }: { params: { id: s
     await team.save();
 
     // Populate before returning
-    await team.populate("captain", "firstName lastName email role");
-    await team.populate("players", "firstName lastName email role");
+    await team.populate("captain", "firstName lastName email role profileImage position jerseyNumber");
+    await team.populate("players", "firstName lastName email role profileImage position jerseyNumber");
 
     return NextResponse.json(
       {
@@ -462,7 +464,8 @@ export async function addPlayer(req: NextRequest, { params }: { params: { id: st
     const decoded = await verifyUser(req);
 
     const { id } = params;
-    const { playerId, format } = await req.json();
+    const body: any = await req.json();
+    const { playerId, format } = body;
 
     if (!playerId || !format) {
       return NextResponse.json({ error: "Player ID and format are required" }, { status: 400 });
@@ -503,10 +506,10 @@ export async function addPlayer(req: NextRequest, { params }: { params: { id: st
     squad.push(playerId);
     await team.save();
 
-    await team.populate("captain", "firstName lastName email role");
-    await (team as any).populate("squad5v5", "firstName lastName email role");
-    await (team as any).populate("squad7v7", "firstName lastName email role");
-    await (team as any).populate("players", "firstName lastName email role");
+    await team.populate("captain", "firstName lastName email role profileImage position jerseyNumber");
+    await (team as any).populate("squad5v5", "firstName lastName email role profileImage position jerseyNumber");
+    await (team as any).populate("squad7v7", "firstName lastName email role profileImage position jerseyNumber");
+    await (team as any).populate("players", "firstName lastName email role profileImage position jerseyNumber");
 
     return NextResponse.json(
       {
@@ -566,10 +569,10 @@ export async function removePlayer(req: NextRequest, { params }: { params: { id:
 
     await team.save();
 
-    await team.populate("captain", "firstName lastName email role");
-    await (team as any).populate("squad5v5", "firstName lastName email role");
-    await (team as any).populate("squad7v7", "firstName lastName email role");
-    await (team as any).populate("players", "firstName lastName email role");
+    await team.populate("captain", "firstName lastName email role profileImage position jerseyNumber");
+    await (team as any).populate("squad5v5", "firstName lastName email role profileImage position jerseyNumber");
+    await (team as any).populate("squad7v7", "firstName lastName email role profileImage position jerseyNumber");
+    await (team as any).populate("players", "firstName lastName email role profileImage position jerseyNumber");
 
     return NextResponse.json(
       {
@@ -629,10 +632,10 @@ export async function uploadTeamImage(req: NextRequest, { params }: { params: { 
     team.image = result.secure_url;
     await team.save();
 
-    await team.populate("captain", "firstName lastName email role");
-    await team.populate("squad5v5", "firstName lastName email role");
-    await team.populate("squad7v7", "firstName lastName email role");
-    await team.populate("players", "firstName lastName email role");
+    await team.populate("captain", "firstName lastName email role profileImage position jerseyNumber");
+    await team.populate("squad5v5", "firstName lastName email role profileImage position jerseyNumber");
+    await team.populate("squad7v7", "firstName lastName email role profileImage position jerseyNumber");
+    await team.populate("players", "firstName lastName email role profileImage position jerseyNumber");
 
     return NextResponse.json(
       {

@@ -1,0 +1,294 @@
+{
+    "info": {
+        "_postman_id": "a1b2c3d4-e5f6-7890-1234-56789abcdef0",
+        "name": "PFFL State Keeper API",
+        "description": "Collection to test State Keeper Player State Updates and Match Management. Includes specific endpoints for Stat Keepers to update detailed player metrics.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Helpers",
+            "item": [
+                {
+                    "name": "Get All Matches",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/match",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "match"
+                            ]
+                        },
+                        "description": "Retrieve all matches to find a valid Match ID."
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Update Player Stats (Detailed)",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"leagueId\": \"{{leagueId}}\",\n    \"matchId\": \"{{matchId}}\",\n    \"teamId\": \"{{teamId}}\",\n    \"playerId\": \"{{playerId}}\",\n    \"stats\": {\n        \"catches\": 1,\n        \"catchYards\": 15,\n        \"rushes\": 2,\n        \"rushYards\": 10,\n        \"passAttempts\": 0,\n        \"completions\": 0,\n        \"passYards\": 0,\n        \"flagPull\": 3,\n        \"sack\": 1,\n        \"interceptions\": 0\n    }\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/stats",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "stats"
+                    ]
+                },
+                "description": "Updates detailed player statistics (Stat Keeper specific).\nThese stats are cumulative (added to existing values).\n\n**Fields:**\n- catches, catchYards\n- rushes, rushYards\n- passAttempts, completions, passYards\n- flagPull, sack, interceptions\n- etc."
+            },
+            "response": []
+        },
+        {
+            "name": "Submit Stats for Approval",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"matchId\": \"{{matchId}}\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/stats/submit",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "stats",
+                        "submit"
+                    ]
+                },
+                "description": "Submits the compiled stats for the match to Super Admins for approval."
+            },
+            "response": []
+        },
+        {
+            "name": "Add Game Action (Scoring Event)",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"teamId\": \"{{teamId}}\",\n    \"playerId\": \"{{playerId}}\",\n    \"actionType\": \"Touchdown\",\n    \"quarter\": \"1\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/match/{{matchId}}/action",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "match",
+                        "{{matchId}}",
+                        "action"
+                    ]
+                },
+                "description": "Records a scoring event. This updates the GAME SCORE and basic scoring stats.\n\n**Valid actionTypes:**\n- Touchdown (6 pts)\n- Extra Point from 5-yard line (1 pt)\n- Extra Point from 12-yard line (2 pts)\n- Extra Point from 20-yard line (2 pts)\n- Defensive Touchdown (6 pts)\n- Extra Point Return only (4 pts)\n- Safety (2 pts)"
+            },
+            "response": []
+        },
+        {
+            "name": "Update Toss",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "type": "text"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"winningTeamId\": \"{{teamId}}\",\n    \"choice\": \"offense\"\n}"
+                },
+                "url": {
+                    "raw": "{{baseUrl}}/api/match/{{matchId}}/toss",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "match",
+                        "{{matchId}}",
+                        "toss"
+                    ]
+                },
+                "description": "Updates the coin toss result.\n\n**Choice:** 'offense' or 'defense'"
+            },
+            "response": []
+        },
+        {
+            "name": "Switch Half Time",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/match/{{matchId}}/halftime",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "match",
+                        "{{matchId}}",
+                        "halftime"
+                    ]
+                },
+                "description": "Switches the game to Half Time and swaps sides."
+            },
+            "response": []
+        },
+        {
+            "name": "Switch Full Time",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/match/{{matchId}}/fulltime",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "match",
+                        "{{matchId}}",
+                        "fulltime"
+                    ]
+                },
+                "description": "Switches the game to Full Time."
+            },
+            "response": []
+        },
+        {
+            "name": "Switch Overtime",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Authorization",
+                        "value": "Bearer {{token}}",
+                        "type": "text"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/match/{{matchId}}/overtime",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "match",
+                        "{{matchId}}",
+                        "overtime"
+                    ]
+                },
+                "description": "Switches the game to Overtime."
+            },
+            "response": []
+        }
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:3000",
+            "type": "string"
+        },
+        {
+            "key": "matchId",
+            "value": "REPLACE_WITH_MATCH_ID",
+            "type": "string"
+        },
+        {
+            "key": "token",
+            "value": "REPLACE_WITH_JWT_TOKEN",
+            "type": "string"
+        },
+        {
+            "key": "teamId",
+            "value": "REPLACE_WITH_TEAM_ID",
+            "type": "string"
+        },
+        {
+            "key": "playerId",
+            "value": "REPLACE_WITH_PLAYER_ID",
+            "type": "string"
+        },
+        {
+            "key": "leagueId",
+            "value": "REPLACE_WITH_LEAGUE_ID",
+            "type": "string"
+        }
+    ]
+}
