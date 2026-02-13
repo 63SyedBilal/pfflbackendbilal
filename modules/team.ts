@@ -1,5 +1,41 @@
 import mongoose from "mongoose";
 
+/**
+ * OverallTeamStatsSchema - cumulative team statistics across matches
+ * Embedded in Team document as `stats` for quick access (league-level/overall)
+ */
+const OverallTeamStatsSchema = new mongoose.Schema(
+  {
+    
+    catches: { type: Number, default: 0 },
+    catchYards: { type: Number, default: 0 },
+    rushes: { type: Number, default: 0 },
+    rushYards: { type: Number, default: 0 },
+    passAttempts: { type: Number, default: 0 },
+    passYards: { type: Number, default: 0 },
+    completions: { type: Number, default: 0 },
+    touchdowns: { type: Number, default: 0 },
+    conversionPoints: { type: Number, default: 0 },
+
+  
+    safeties: { type: Number, default: 0 },
+    flagPull: { type: Number, default: 0 },
+    sack: { type: Number, default: 0 },
+    interceptions: { type: Number, default: 0 },
+
+    // Calculated / metadata
+    totalPoints: { type: Number, default: 0 },
+    matchesPlayed: { type: Number, default: 0 },        // total matches/games played
+    leaguesPlayed: { type: Number, default: 0 },        // total distinct leagues the team played in
+    gamesWon5v5: { type: Number, default: 0 },          // total 5v5 games won
+    gamesWon7v7: { type: Number, default: 0 },          // total 7v7 games won
+    leaguesWon5v5: { type: Number, default: 0 },        // total 5v5 league titles won
+    leaguesWon7v7: { type: Number, default: 0 },        // total 7v7 league titles won
+    lastUpdated: { type: Date, default: Date.now }
+  },
+  { _id: false }
+);
+
 export const TeamSchema = new mongoose.Schema(
   {
     teamName: {
@@ -53,6 +89,12 @@ export const TeamSchema = new mongoose.Schema(
         ref: "User"
       }
     ],
+
+    // Overall cumulative team stats (across all matches)
+    stats: {
+      type: OverallTeamStatsSchema,
+      default: () => ({})
+    },
 
     players: [
       {

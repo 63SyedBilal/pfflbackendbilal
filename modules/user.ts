@@ -1,6 +1,45 @@
 import mongoose from "mongoose";
 import { hashPassword, verifyPassword } from "@/lib/auth";
 
+/**
+ * OverallPlayerStatsSchema - Cumulative stats across all matches for a player
+ * This mirrors PlayerStatsSchema but is embedded in User (not Match)
+ * Example: Player has played 3 matches with stats [3 TDs, 2 TD, 5 TD] → Overall: 10 TDs
+ */
+const OverallPlayerStatsSchema = new mongoose.Schema(
+  {
+    // Offensive - cumulative across all matches
+    catches: { type: Number, default: 0 },
+    catchYards: { type: Number, default: 0 },
+    rushes: { type: Number, default: 0 },
+    rushYards: { type: Number, default: 0 },
+    passAttempts: { type: Number, default: 0 },
+    passYards: { type: Number, default: 0 },
+    completions: { type: Number, default: 0 },
+    touchdowns: { type: Number, default: 0 },
+    conversionPoints: { type: Number, default: 0 },
+
+    // Defensive / misc - cumulative across all matches
+    safeties: { type: Number, default: 0 },
+    flagPull: { type: Number, default: 0 },
+    sack: { type: Number, default: 0 },
+    interceptions: { type: Number, default: 0 },
+
+    // Calculated - sum of all match performances
+    totalPoints: { type: Number, default: 0 },
+
+    // Metadata
+    matchesPlayed: { type: Number, default: 0 },          // total matches/games played
+    leaguesPlayed: { type: Number, default: 0 },          // total distinct leagues player participated in
+    gamesWon5v5: { type: Number, default: 0 },            // total 5v5 games won
+    gamesWon7v7: { type: Number, default: 0 },            // total 7v7 games won
+    leaguesWon5v5: { type: Number, default: 0 },          // total 5v5 league titles won
+    leaguesWon7v7: { type: Number, default: 0 },          // total 7v7 league titles won
+    lastUpdated: { type: Date, default: Date.now }        // When stats were last updated
+  },
+  { _id: false }
+);
+
 export const UserSchema = new mongoose.Schema(
   {
     firstName: {
@@ -65,11 +104,22 @@ export const UserSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+
+    /**
+     * Overall career stats - cumulative across all matches
+     * Updated atomically when Stat Keeper updates match stats
+     * Examples:
+     *   Match 1: player has {td: 3, catches: 4} → User.stats = {td: 3, catches: 4}
+     *   Match 2: player has {td: 4, catches: 1} → User.stats = {td: 7, catches: 5}
+     *   Match 3: player has {td: 2, catches: 3} → User.stats = {td: 9, catches: 8}
+     */
+    stats: {
+      type: OverallPlayerStatsSchema,
+      default: () => ({})
+    },
   },
   { timestamps: true }
 );
-
-// Convert empty phone strings to undefined to avoid unique constraint issues
 UserSchema.pre("save", function () {
   if (this.phone === "" || this.phone === null) {
     this.phone = undefined;

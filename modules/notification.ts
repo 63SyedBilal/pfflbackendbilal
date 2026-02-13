@@ -41,6 +41,7 @@ const NotificationSchema = new mongoose.Schema(
         "INVITE_ACCEPTED_STATKEEPER",
         "INVITE_ACCEPTED_TEAM",
         "PAYMENT_COMPLETED",
+        "PAYMENT_REQUIRED",
         "STATS_SUBMITTED",
         "STATS_APPROVED",
         "STATS_REJECTED",

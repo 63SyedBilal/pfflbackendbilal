@@ -47,8 +47,14 @@ async function verifyAdmin(req: NextRequest) {
 export async function createLeague(req: NextRequest) {
   try {
     await connectDB();
-    await verifyAdmin(req);
+    const decoded = await verifyAdmin(req);
+    const adminId = (decoded as any).userId || (decoded as any).id;
 
+    const body = await req.json() as {
+      leagueName?: string; logo?: string; format?: string; startDate?: string | Date; endDate?: string | Date;
+      minimumPlayers?: number; entryFeeType?: string; perPlayerLeagueFee?: number; referees?: string[];
+      statKeepers?: string[]; teams?: string[]; status?: string;
+    };
     const {
       leagueName,
       logo,
@@ -58,14 +64,14 @@ export async function createLeague(req: NextRequest) {
       minimumPlayers,
       entryFeeType,
       perPlayerLeagueFee,
-      referee,
-      statKeeper,
+      referees,
+      statKeepers,
       teams,
       status
-    } = await req.json();
+    } = body;
 
     // Validate required fields
-    if (!leagueName || !format || !startDate || !endDate || !minimumPlayers || !entryFeeType) {
+    if (!leagueName || !format || !startDate || !endDate || minimumPlayers == null || !entryFeeType) {
       return NextResponse.json(
         { error: "League name, format, start date, end date, minimum players, and entry fee type are required" },
         { status: 400 }
@@ -73,18 +79,18 @@ export async function createLeague(req: NextRequest) {
     }
 
     // Validate format enum
-    if (!["5v5", "7v7"].includes(format)) {
+    if (!["5v5", "7v7"].includes(String(format))) {
       return NextResponse.json({ error: "Format must be either '5v5' or '7v7'" }, { status: 400 });
     }
 
     // Validate entryFeeType enum
-    if (!["stripe", "paypal"].includes(entryFeeType)) {
+    if (!["stripe", "paypal"].includes(String(entryFeeType))) {
       return NextResponse.json({ error: "Entry fee type must be either 'stripe' or 'paypal'" }, { status: 400 });
     }
 
     // Validate dates
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(startDate as string | Date);
+    const end = new Date(endDate as string | Date);
 
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       return NextResponse.json({ error: "Invalid date format" }, { status: 400 });
@@ -95,23 +101,71 @@ export async function createLeague(req: NextRequest) {
     }
 
     // Validate minimum players
-    if (minimumPlayers < 1) {
+    if (Number(minimumPlayers) < 1) {
       return NextResponse.json({ error: "Minimum players must be at least 1" }, { status: 400 });
     }
 
-    // Teams, referees, and stat keepers will be added via invitations, not directly
-    // So we don't validate them here
-
     // Validate status enum
-    if (status && !["active", "pending"].includes(status)) {
+    if (status && !["active", "pending"].includes(String(status))) {
       return NextResponse.json({ error: "Status must be either 'active' or 'pending'" }, { status: 400 });
+    }
+
+    // Validate and process referees array if provided
+    let validatedReferees: mongoose.Types.ObjectId[] = [];
+    if (referees && Array.isArray(referees)) {
+      for (const refId of referees) {
+        if (!mongoose.Types.ObjectId.isValid(String(refId))) {
+          return NextResponse.json({ error: `Invalid referee ID: ${refId}` }, { status: 400 });
+        }
+        const referee = await User.findById(refId);
+        if (!referee) {
+          return NextResponse.json({ error: `Referee not found: ${refId}` }, { status: 404 });
+        }
+        if (referee.role !== "referee") {
+          return NextResponse.json({ error: `User ${refId} is not a referee` }, { status: 400 });
+        }
+        validatedReferees.push(toObjectId(String(refId)));
+      }
+    }
+
+    // Validate and process stat keepers array if provided
+    let validatedStatKeepers: mongoose.Types.ObjectId[] = [];
+    if (statKeepers && Array.isArray(statKeepers)) {
+      for (const skId of statKeepers) {
+        if (!mongoose.Types.ObjectId.isValid(String(skId))) {
+          return NextResponse.json({ error: `Invalid stat keeper ID: ${skId}` }, { status: 400 });
+        }
+        const statKeeper = await User.findById(skId);
+        if (!statKeeper) {
+          return NextResponse.json({ error: `Stat keeper not found: ${skId}` }, { status: 404 });
+        }
+        if (statKeeper.role !== "stat-keeper") {
+          return NextResponse.json({ error: `User ${skId} is not a stat-keeper` }, { status: 400 });
+        }
+        validatedStatKeepers.push(toObjectId(String(skId)));
+      }
+    }
+
+    // Validate and process teams array if provided
+    let validatedTeams: mongoose.Types.ObjectId[] = [];
+    if (teams && Array.isArray(teams)) {
+      for (const teamId of teams) {
+        if (!mongoose.Types.ObjectId.isValid(String(teamId))) {
+          return NextResponse.json({ error: `Invalid team ID: ${teamId}` }, { status: 400 });
+        }
+        const team = await Team.findById(teamId);
+        if (!team) {
+          return NextResponse.json({ error: `Team not found: ${teamId}` }, { status: 404 });
+        }
+        validatedTeams.push(toObjectId(String(teamId)));
+      }
     }
 
     // Handle logo upload - supports base64, regular URLs, and Cloudinary URLs
     let logoUrl = logo || "";
-    if (logo && typeof logo === "string" && logo.trim() !== "") {
+    if (logo && typeof logo === "string" && (logo as string).trim() !== "") {
       try {
-        logoUrl = await uploadImageToCloudinary(logo, {
+        logoUrl = await uploadImageToCloudinary(logo as string, {
           folder: "pffl/leagues",
           resource_type: "image",
         });
@@ -125,7 +179,7 @@ export async function createLeague(req: NextRequest) {
     }
 
     const leagueData: any = {
-      leagueName: leagueName.trim(),
+      leagueName: String(leagueName).trim(),
       format,
       startDate: start,
       endDate: end,
@@ -134,9 +188,9 @@ export async function createLeague(req: NextRequest) {
       perPlayerLeagueFee: perPlayerLeagueFee || 0,
       logo: logoUrl,
       status: status || "pending",
-      referees: [],
-      statKeepers: [],
-      teams: [],
+      referees: validatedReferees,
+      statKeepers: validatedStatKeepers,
+      teams: validatedTeams,
     };
 
     const league = await League.create(leagueData);
@@ -148,6 +202,48 @@ export async function createLeague(req: NextRequest) {
     } catch (leaderboardError: any) {
       console.error("Error initializing leaderboard:", leaderboardError);
       // Don't fail league creation if leaderboard init fails
+    }
+
+    // Create payment records and payment-required notifications for players in teams (when league is created with teams)
+    if (validatedTeams.length > 0 && adminId) {
+      try {
+        const { createPayment } = await import("@/controller/payment");
+        const leagueObjectId = toObjectId(leagueId);
+        const leagueDoc = await League.findById(leagueObjectId).lean();
+        const leagueName = (leagueDoc as any)?.leagueName || "this league";
+
+        for (const teamId of validatedTeams) {
+          const team = await Team.findById(teamId).lean();
+          if (!team) continue;
+          const captainId = (team as any).captain?.toString?.() || (team as any).captain;
+          const squad5 = ((team as any).squad5v5 || []).map((id: any) => id?.toString?.() || String(id));
+          const squad7 = ((team as any).squad7v7 || []).map((id: any) => id?.toString?.() || String(id));
+          const allPlayerIds = [...new Set([captainId, ...squad5, ...squad7].filter(Boolean))];
+
+          for (const playerIdStr of allPlayerIds) {
+            try {
+              const user = await User.findById(playerIdStr).lean();
+              if (!user || !["player", "captain", "free-agent"].includes((user as any).role)) continue;
+              const playerObjectId = toObjectId(playerIdStr);
+              await createPayment(playerObjectId, leagueObjectId, teamId);
+              await Notification.create({
+                sender: toObjectId(adminId),
+                receiver: playerObjectId,
+                league: leagueObjectId,
+                team: teamId,
+                type: "PAYMENT_REQUIRED",
+                message: `League fee payment required for ${leagueName}.`,
+                status: "pending",
+              });
+            } catch (err: any) {
+              console.error("Error creating payment/notification for player on league create:", err);
+            }
+          }
+        }
+      } catch (paymentNotifyError: any) {
+        console.error("Error creating payments/notifications on league create:", paymentNotifyError);
+        // Don't fail league creation
+      }
     }
 
     // Populate related fields
@@ -296,6 +392,11 @@ export async function updateLeague(req: NextRequest, { params }: { params: { id:
 
     const { id } = params;
     const leagueId = toObjectId(id);
+    const updateBody = await req.json() as {
+      leagueName?: string | null; logo?: string | null; format?: string; startDate?: string | Date | null;
+      endDate?: string | Date | null; minimumPlayers?: number | null; entryFeeType?: string | null;
+      perPlayerLeagueFee?: number | null; teams?: string[]; status?: string | null;
+    };
     const {
       leagueName,
       logo,
@@ -307,20 +408,20 @@ export async function updateLeague(req: NextRequest, { params }: { params: { id:
       perPlayerLeagueFee,
       teams,
       status,
-    } = await req.json();
+    } = updateBody;
 
     const league = await League.findById(leagueId);
     if (!league) {
       return NextResponse.json({ error: "League not found" }, { status: 404 });
     }
 
-    if (leagueName !== undefined) {
-      (league as any).leagueName = leagueName.trim();
+    if (leagueName !== undefined && leagueName != null) {
+      (league as any).leagueName = String(leagueName).trim();
     }
 
     if (logo !== undefined && logo !== null && logo !== "") {
       try {
-        (league as any).logo = await uploadImageToCloudinary(logo, {
+        (league as any).logo = await uploadImageToCloudinary(String(logo), {
           folder: "pffl/leagues",
           resource_type: "image",
         });
@@ -334,22 +435,22 @@ export async function updateLeague(req: NextRequest, { params }: { params: { id:
     }
 
     if (format !== undefined) {
-      if (!["5v5", "7v7"].includes(format)) {
+      if (!["5v5", "7v7"].includes(String(format))) {
         return NextResponse.json({ error: "Format must be either '5v5' or '7v7'" }, { status: 400 });
       }
       (league as any).format = format;
     }
 
-    if (startDate !== undefined) {
-      const start = new Date(startDate);
+    if (startDate !== undefined && startDate != null) {
+      const start = new Date(startDate as string | Date);
       if (isNaN(start.getTime())) {
         return NextResponse.json({ error: "Invalid start date format" }, { status: 400 });
       }
       (league as any).startDate = start;
     }
 
-    if (endDate !== undefined) {
-      const end = new Date(endDate);
+    if (endDate !== undefined && endDate != null) {
+      const end = new Date(endDate as string | Date);
       if (isNaN(end.getTime())) {
         return NextResponse.json({ error: "Invalid end date format" }, { status: 400 });
       }
@@ -365,29 +466,29 @@ export async function updateLeague(req: NextRequest, { params }: { params: { id:
       }
     }
 
-    if (minimumPlayers !== undefined) {
-      if (minimumPlayers < 1) {
+    if (minimumPlayers !== undefined && minimumPlayers != null) {
+      if (Number(minimumPlayers) < 1) {
         return NextResponse.json({ error: "Minimum players must be at least 1" }, { status: 400 });
       }
       (league as any).minimumPlayers = minimumPlayers;
     }
 
-    if (entryFeeType !== undefined) {
-      if (!["stripe", "paypal"].includes(entryFeeType)) {
+    if (entryFeeType !== undefined && entryFeeType != null) {
+      if (!["stripe", "paypal"].includes(String(entryFeeType))) {
         return NextResponse.json({ error: "Entry fee type must be either 'stripe' or 'paypal'" }, { status: 400 });
       }
       (league as any).entryFeeType = entryFeeType;
     }
 
-    if (perPlayerLeagueFee !== undefined) {
+    if (perPlayerLeagueFee !== undefined && perPlayerLeagueFee != null) {
       (league as any).perPlayerLeagueFee = perPlayerLeagueFee;
     }
 
     // Teams, referees, and stat keepers are managed via invitations, not direct updates
     // They can only be added/removed through the invitation accept/reject flow
 
-    if (status !== undefined) {
-      if (!["active", "pending"].includes(status)) {
+    if (status !== undefined && status != null) {
+      if (!["active", "pending"].includes(String(status))) {
         return NextResponse.json({ error: "Status must be either 'active' or 'pending'" }, { status: 400 });
       }
       (league as any).status = status;
@@ -456,7 +557,7 @@ export async function addTeamToLeague(req: NextRequest, { params }: { params: { 
 
     const { id } = params;
     const leagueId = toObjectId(id);
-    const { teamId } = await req.json();
+    const { teamId } = (await req.json()) as { teamId?: string };
 
     if (!teamId) {
       return NextResponse.json({ error: "Team ID is required" }, { status: 400 });
@@ -569,7 +670,7 @@ export async function inviteRefereeToLeague(req: NextRequest, { params }: { para
     const decoded = await verifyAdmin(req);
 
     const { id } = params;
-    const { refereeId } = await req.json();
+    const { refereeId } = (await req.json()) as { refereeId?: string };
 
     console.log("inviteRefereeToLeague - League ID:", id);
     console.log("inviteRefereeToLeague - Referee ID:", refereeId);
@@ -677,7 +778,7 @@ export async function inviteStatKeeperToLeague(req: NextRequest, { params }: { p
     const decoded = await verifyAdmin(req);
 
     const { id } = params;
-    const { statKeeperId } = await req.json();
+    const { statKeeperId } = (await req.json()) as { statKeeperId?: string };
 
     console.log("inviteStatKeeperToLeague - League ID:", id);
     console.log("inviteStatKeeperToLeague - Stat Keeper ID:", statKeeperId);
@@ -804,7 +905,7 @@ export async function inviteTeamToLeague(req: NextRequest, { params }: { params:
     const decoded = await verifyAdmin(req);
 
     const { id } = params;
-    const { teamId } = await req.json();
+    const { teamId } = (await req.json()) as { teamId?: string };
 
     console.log("inviteTeamToLeague - League ID:", id);
     console.log("inviteTeamToLeague - Team ID:", teamId);
@@ -962,5 +1063,88 @@ export async function uploadLeagueLogo(req: NextRequest, { params }: { params: {
     }
     console.error("Upload error:", error);
     return NextResponse.json({ error: error.message || "Failed to upload logo" }, { status: 500 });
+  }
+}
+
+/**
+ * Set league winner – increments User.stats.leaguesWon5v5 or leaguesWon7v7 for all players in the winning team.
+ * Call this when a league is finalized (e.g. by superadmin).
+ * POST /api/league/:id/set-winner
+ * Body: { winningTeamId: string }
+ */
+export async function setLeagueWinner(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await connectDB();
+    await verifyAdmin(req);
+
+    const { id } = params;
+    const leagueId = toObjectId(id);
+    const body = (await req.json()) as any;
+    const winningTeamId = body.winningTeamId;
+
+    if (!winningTeamId) {
+      return NextResponse.json({ error: "winningTeamId is required" }, { status: 400 });
+    }
+
+    const league = await League.findById(leagueId);
+    if (!league) {
+      return NextResponse.json({ error: "League not found" }, { status: 404 });
+    }
+
+    const format = (league as any).format as string;
+    if (format !== "5v5" && format !== "7v7") {
+      return NextResponse.json({ error: "League format must be 5v5 or 7v7" }, { status: 400 });
+    }
+
+    const team = await Team.findById(winningTeamId);
+    if (!team) {
+      return NextResponse.json({ error: "Winning team not found" }, { status: 404 });
+    }
+
+    const leagueTeams = (league as any).teams || [];
+    if (!leagueTeams.some((t: any) => String(t) === String(winningTeamId))) {
+      return NextResponse.json({ error: "Winning team is not part of this league" }, { status: 400 });
+    }
+
+    const playerIds = new Set<string>();
+    const captain = (team as any).captain;
+    if (captain) playerIds.add(String(captain));
+    const squad5 = (team as any).squad5v5 || [];
+    const squad7 = (team as any).squad7v7 || [];
+    squad5.forEach((id: any) => playerIds.add(String(id)));
+    squad7.forEach((id: any) => playerIds.add(String(id)));
+    const players = (team as any).players;
+    if (Array.isArray(players)) {
+      players.forEach((p: any) => {
+        const pid = p.playerId || p;
+        if (pid) playerIds.add(String(pid));
+      });
+    }
+
+    const field = format === "5v5" ? "stats.leaguesWon5v5" : "stats.leaguesWon7v7";
+    for (const uid of playerIds) {
+      await User.findByIdAndUpdate(uid, {
+        $inc: { [field]: 1 },
+        $set: { "stats.lastUpdated": new Date() },
+      });
+    }
+    await Team.findByIdAndUpdate(winningTeamId, {
+      $inc: { [field]: 1 },
+      $set: { "stats.lastUpdated": new Date() },
+    });
+
+    return NextResponse.json(
+      {
+        message: "League winner set; user and team stats.leaguesWon updated for all players and the winning team",
+        data: { leagueId, winningTeamId, format, playerCount: playerIds.size },
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    if (error.message === "No token provided" || error.message === "Invalid token" || error.message === "Unauthorized") {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    console.error("Set league winner error:", error);
+    return NextResponse.json({ error: error.message || "Failed to set league winner" }, { status: 500 });
   }
 }

@@ -101,19 +101,24 @@ export async function submitStats(req: NextRequest) {
 }
 
 /**
- * Update player stats directly (for Stat Keeper)
+ * Update player stats directly (for Stat Keeper only)
  * POST /api/stats
  */
 export async function updatePlayerStats(req: NextRequest) {
     try {
         await connectDB();
 
-        // Verify user (Stat Keeper or Referee or Admin)
+        // Verify user (Stat Keeper only)
         const token = req.headers.get("authorization")?.split(" ")[1];
         if (!token) {
             return NextResponse.json({ error: "No token provided" }, { status: 401 });
         }
-        verifyAccessToken(token); // Verify token validity
+        const decoded = verifyAccessToken(token); // Verify token validity
+        
+        // Only Stat Keeper can update player stats
+        if (decoded.role !== "stat-keeper") {
+            return NextResponse.json({ error: "Only Stat Keeper can update player stats" }, { status: 403 });
+        }
 
         const body = await req.json() as any;
         const { leagueId, matchId, teamId, playerId, stats } = body;
@@ -146,60 +151,88 @@ export async function updatePlayerStats(req: NextRequest) {
         }
 
         const teamData = isTeamA ? (match as any).teamA : (match as any).teamB;
-
-        // Find existing player stats or create new
-        let playerStatEntry = teamData.playerStats.find((ps: any) =>
-            ps.playerId.toString() === playerObjectId.toString()
-        );
-
-        // Ensure entry exists
-        if (!playerStatEntry) {
-            playerStatEntry = {
-                playerId: playerObjectId,
-                catches: 0,
-                catchYards: 0,
-                rushes: 0,
-                rushYards: 0,
-                passAttempts: 0,
-                passYards: 0,
-                completions: 0,
-                touchdowns: 0,
-                flagPull: 0,
-                sack: 0,
-                interceptions: 0,
-                safeties: 0,
-                extraPoints: 0,
-                defensiveTDs: 0,
-                totalPoints: 0
-            };
-            teamData.playerStats.push(playerStatEntry);
+        if (!teamData) {
+            return NextResponse.json({ error: "Team data not found for this match" }, { status: 400 });
+        }
+        // Ensure arrays/objects exist so we can persist reliably
+        if (!Array.isArray(teamData.playerStats)) {
+            teamData.playerStats = [];
         }
 
-        // --- CUMULATIVE UPDATE LOGIC ---
-        // Add new values to existing values instead of replacing them
-        playerStatEntry.catches = (playerStatEntry.catches || 0) + (stats.catches || 0);
-        playerStatEntry.catchYards = (playerStatEntry.catchYards || 0) + (stats.catchYards || 0);
-        playerStatEntry.rushes = (playerStatEntry.rushes || 0) + (stats.rushes || 0);
-        playerStatEntry.rushYards = (playerStatEntry.rushYards || 0) + (stats.rushYards || 0);
-        playerStatEntry.passAttempts = (playerStatEntry.passAttempts || 0) + (stats.passAttempts || 0);
-        playerStatEntry.passYards = (playerStatEntry.passYards || 0) + (stats.passYards || 0);
-        playerStatEntry.completions = (playerStatEntry.completions || 0) + (stats.completions || 0);
-        playerStatEntry.touchdowns = (playerStatEntry.touchdowns || 0) + (stats.touchdowns || 0);
-        playerStatEntry.flagPull = (playerStatEntry.flagPull || 0) + (stats.flagPull || 0);
-        playerStatEntry.sack = (playerStatEntry.sack || 0) + (stats.sack || 0);
-        playerStatEntry.interceptions = (playerStatEntry.interceptions || 0) + (stats.interceptions || 0);
-        playerStatEntry.safeties = (playerStatEntry.safeties || 0) + (stats.safeties || 0);
-        playerStatEntry.extraPoints = (playerStatEntry.extraPoints || 0) + (stats.extraPoints || 0);
-        playerStatEntry.defensiveTDs = (playerStatEntry.defensiveTDs || 0) + (stats.defensiveTDs || 0);
+        // Find existing player stats index
+        const playerStatsArray = teamData.playerStats;
+        const existingIndex = playerStatsArray.findIndex((ps: any) =>
+            ps && ps.playerId && String(ps.playerId) === String(playerObjectId)
+        );
 
-        // Recalculate total points for player
-        playerStatEntry.totalPoints = (playerStatEntry.touchdowns || 0) * 6 +
-            (playerStatEntry.defensiveTDs || 0) * 6 +
-            (playerStatEntry.extraPoints || 0) * 1 +
+        let playerStatEntry: any;
+        const isNewPlayerEntry = existingIndex === -1;
+
+        if (existingIndex >= 0) {
+            const existing = playerStatsArray[existingIndex];
+            playerStatEntry = {
+                playerId: existing.playerId,
+                catches: (existing.catches || 0) + (stats.catches || 0),
+                catchYards: (existing.catchYards || 0) + (stats.catchYards || 0),
+                rushes: (existing.rushes || 0) + (stats.rushes || 0),
+                rushYards: (existing.rushYards || 0) + (stats.rushYards || 0),
+                passAttempts: (existing.passAttempts || 0) + (stats.passAttempts || 0),
+                passYards: (existing.passYards || 0) + (stats.passYards || 0),
+                completions: (existing.completions || 0) + (stats.completions || 0),
+                touchdowns: (existing.touchdowns || 0) + (stats.touchdowns || 0),
+                flagPull: (existing.flagPull || 0) + (stats.flagPull || 0),
+                sack: (existing.sack || 0) + (stats.sack || 0),
+                interceptions: (existing.interceptions || 0) + (stats.interceptions || 0),
+                safeties: (existing.safeties || 0) + (stats.safeties || 0),
+                conversionPoints: (existing.conversionPoints || 0) + (stats.conversionPoints || stats.extraPoints || 0)
+            };
+        } else {
+            playerStatEntry = {
+                playerId: playerObjectId,
+                catches: stats.catches || 0,
+                catchYards: stats.catchYards || 0,
+                rushes: stats.rushes || 0,
+                rushYards: stats.rushYards || 0,
+                passAttempts: stats.passAttempts || 0,
+                passYards: stats.passYards || 0,
+                completions: stats.completions || 0,
+                touchdowns: stats.touchdowns || 0,
+                flagPull: stats.flagPull || 0,
+                sack: stats.sack || 0,
+                interceptions: stats.interceptions || 0,
+                safeties: stats.safeties || 0,
+                conversionPoints: stats.conversionPoints || stats.extraPoints || 0
+            };
+        }
+
+        // Store old values for User.stats delta (before we replace the array)
+        const oldEntry = existingIndex >= 0 ? playerStatsArray[existingIndex] : null;
+        const oldCatches = oldEntry?.catches ?? 0;
+        const oldCatchYards = oldEntry?.catchYards ?? 0;
+        const oldRushes = oldEntry?.rushes ?? 0;
+        const oldRushYards = oldEntry?.rushYards ?? 0;
+        const oldPassAttempts = oldEntry?.passAttempts ?? 0;
+        const oldPassYards = oldEntry?.passYards ?? 0;
+        const oldCompletions = oldEntry?.completions ?? 0;
+        const oldTouchdowns = oldEntry?.touchdowns ?? 0;
+        const oldConversionPoints = oldEntry?.conversionPoints ?? 0;
+        const oldSafeties = oldEntry?.safeties ?? 0;
+        const oldFlagPull = oldEntry?.flagPull ?? 0;
+        const oldSack = oldEntry?.sack ?? 0;
+        const oldInterceptions = oldEntry?.interceptions ?? 0;
+        const oldPlayerTotalPoints = (oldTouchdowns) * 6 + (oldConversionPoints) * 1 + (oldSafeties) * 2;
+
+        // Build new playerStats array and set on match so Mongoose persists it
+        const updatedPlayerStats =
+            existingIndex >= 0
+                ? playerStatsArray.map((p: any, i: number) => (i === existingIndex ? playerStatEntry : p))
+                : [...playerStatsArray, playerStatEntry];
+
+        const newPlayerTotalPoints = (playerStatEntry.touchdowns || 0) * 6 +
+            (playerStatEntry.conversionPoints || 0) * 1 +
             (playerStatEntry.safeties || 0) * 2;
 
-
-        // --- RECALCULATE TEAM STATS ---
+        // Recalculate team stats from the updated array
         const newTeamStats = {
             catches: 0,
             catchYards: 0,
@@ -213,13 +246,10 @@ export async function updatePlayerStats(req: NextRequest) {
             sack: 0,
             interceptions: 0,
             safeties: 0,
-            extraPoints: 0,
-            defensiveTDs: 0,
-            totalPoints: 0
+            conversionPoints: 0
         };
-
-        // Aggregate from all players
-        for (const p of teamData.playerStats) {
+        for (const p of updatedPlayerStats) {
+            if (!p) continue;
             newTeamStats.catches += p.catches || 0;
             newTeamStats.catchYards += p.catchYards || 0;
             newTeamStats.rushes += p.rushes || 0;
@@ -232,18 +262,108 @@ export async function updatePlayerStats(req: NextRequest) {
             newTeamStats.sack += p.sack || 0;
             newTeamStats.interceptions += p.interceptions || 0;
             newTeamStats.safeties += p.safeties || 0;
-            newTeamStats.extraPoints += p.extraPoints || 0;
-            newTeamStats.defensiveTDs += p.defensiveTDs || 0;
-            newTeamStats.totalPoints += p.totalPoints || 0;
+            newTeamStats.conversionPoints += p.conversionPoints || (p as any).extraPoints || 0;
         }
 
-        teamData.teamStats = newTeamStats;
-
-        // Mark modified
-        (match as any).markModified(isTeamA ? "teamA.playerStats" : "teamB.playerStats");
-        (match as any).markModified(isTeamA ? "teamA.teamStats" : "teamB.teamStats");
-
+        // Step 1: Write to match document using set() so Mongoose persists; then save match first
+        const teamPath = isTeamA ? "teamA" : "teamB";
+        (match as any).set(`${teamPath}.playerStats`, updatedPlayerStats);
+        (match as any).set(`${teamPath}.teamStats`, newTeamStats);
+        (match as any).markModified(teamPath);
         await match.save();
+
+        // Calculate deltas for all stat fields
+        const statDeltas = {
+            catches: (playerStatEntry.catches || 0) - oldCatches,
+            catchYards: (playerStatEntry.catchYards || 0) - oldCatchYards,
+            rushes: (playerStatEntry.rushes || 0) - oldRushes,
+            rushYards: (playerStatEntry.rushYards || 0) - oldRushYards,
+            passAttempts: (playerStatEntry.passAttempts || 0) - oldPassAttempts,
+            passYards: (playerStatEntry.passYards || 0) - oldPassYards,
+            completions: (playerStatEntry.completions || 0) - oldCompletions,
+            touchdowns: (playerStatEntry.touchdowns || 0) - oldTouchdowns,
+            conversionPoints: (playerStatEntry.conversionPoints || 0) - oldConversionPoints,
+            safeties: (playerStatEntry.safeties || 0) - oldSafeties,
+            flagPull: (playerStatEntry.flagPull || 0) - oldFlagPull,
+            sack: (playerStatEntry.sack || 0) - oldSack,
+            interceptions: (playerStatEntry.interceptions || 0) - oldInterceptions,
+        };
+
+        const pointsDelta = newPlayerTotalPoints - oldPlayerTotalPoints;
+
+        // Step 2: Only after match is saved, update User.stats from the same data (career totals)
+        if (pointsDelta !== 0 || isNewPlayerEntry || Object.values(statDeltas).some(d => d !== 0)) {
+            const updatePayload: any = {
+                $inc: {
+                    totalPoints: pointsDelta
+                }
+            };
+
+            if (statDeltas.catches !== 0) updatePayload.$inc['stats.catches'] = statDeltas.catches;
+            if (statDeltas.catchYards !== 0) updatePayload.$inc['stats.catchYards'] = statDeltas.catchYards;
+            if (statDeltas.rushes !== 0) updatePayload.$inc['stats.rushes'] = statDeltas.rushes;
+            if (statDeltas.rushYards !== 0) updatePayload.$inc['stats.rushYards'] = statDeltas.rushYards;
+            if (statDeltas.passAttempts !== 0) updatePayload.$inc['stats.passAttempts'] = statDeltas.passAttempts;
+            if (statDeltas.passYards !== 0) updatePayload.$inc['stats.passYards'] = statDeltas.passYards;
+            if (statDeltas.completions !== 0) updatePayload.$inc['stats.completions'] = statDeltas.completions;
+            if (statDeltas.touchdowns !== 0) updatePayload.$inc['stats.touchdowns'] = statDeltas.touchdowns;
+            if (statDeltas.conversionPoints !== 0) updatePayload.$inc['stats.conversionPoints'] = statDeltas.conversionPoints;
+            if (statDeltas.safeties !== 0) updatePayload.$inc['stats.safeties'] = statDeltas.safeties;
+            if (statDeltas.flagPull !== 0) updatePayload.$inc['stats.flagPull'] = statDeltas.flagPull;
+            if (statDeltas.sack !== 0) updatePayload.$inc['stats.sack'] = statDeltas.sack;
+            if (statDeltas.interceptions !== 0) updatePayload.$inc['stats.interceptions'] = statDeltas.interceptions;
+            if (pointsDelta !== 0) updatePayload.$inc['stats.totalPoints'] = pointsDelta;
+            if (isNewPlayerEntry) updatePayload.$inc['stats.matchesPlayed'] = 1;
+            // First time this player has stats in this league → increment leaguesPlayed
+            if (isNewPlayerEntry && (match as any).leagueId) {
+                const leagueId = (match as any).leagueId;
+                const count = await Match.countDocuments({
+                    leagueId,
+                    $or: [
+                        { "teamA.playerStats.playerId": playerObjectId },
+                        { "teamB.playerStats.playerId": playerObjectId }
+                    ]
+                });
+                if (count === 1) updatePayload.$inc['stats.leaguesPlayed'] = 1;
+            }
+            updatePayload.$set = { 'stats.lastUpdated': new Date() };
+
+            await User.findByIdAndUpdate(playerObjectId, updatePayload);
+        }
+
+        // Step 3: Update Team overall stats (cumulative across all matches), same as User.stats
+        const teamInc: Record<string, number> = {};
+        if (statDeltas.catches !== 0) teamInc['stats.catches'] = statDeltas.catches;
+        if (statDeltas.catchYards !== 0) teamInc['stats.catchYards'] = statDeltas.catchYards;
+        if (statDeltas.rushes !== 0) teamInc['stats.rushes'] = statDeltas.rushes;
+        if (statDeltas.rushYards !== 0) teamInc['stats.rushYards'] = statDeltas.rushYards;
+        if (statDeltas.passAttempts !== 0) teamInc['stats.passAttempts'] = statDeltas.passAttempts;
+        if (statDeltas.passYards !== 0) teamInc['stats.passYards'] = statDeltas.passYards;
+        if (statDeltas.completions !== 0) teamInc['stats.completions'] = statDeltas.completions;
+        if (statDeltas.touchdowns !== 0) teamInc['stats.touchdowns'] = statDeltas.touchdowns;
+        if (statDeltas.conversionPoints !== 0) teamInc['stats.conversionPoints'] = statDeltas.conversionPoints;
+        if (statDeltas.safeties !== 0) teamInc['stats.safeties'] = statDeltas.safeties;
+        if (statDeltas.flagPull !== 0) teamInc['stats.flagPull'] = statDeltas.flagPull;
+        if (statDeltas.sack !== 0) teamInc['stats.sack'] = statDeltas.sack;
+        if (statDeltas.interceptions !== 0) teamInc['stats.interceptions'] = statDeltas.interceptions;
+        if (pointsDelta !== 0) teamInc['stats.totalPoints'] = pointsDelta;
+        const isFirstPlayerForTeamInThisMatch = isNewPlayerEntry && updatedPlayerStats.length === 1;
+        if (isFirstPlayerForTeamInThisMatch) teamInc['stats.matchesPlayed'] = 1;
+        if (isNewPlayerEntry && (match as any).leagueId) {
+            const leagueId = (match as any).leagueId;
+            const teamMatchCount = await Match.countDocuments({
+                leagueId,
+                $or: [
+                    { "teamA.teamId": teamObjectId },
+                    { "teamB.teamId": teamObjectId }
+                ]
+            });
+            if (teamMatchCount === 1) teamInc['stats.leaguesPlayed'] = 1;
+        }
+        if (Object.keys(teamInc).length > 0) {
+            const teamPayload: any = { $inc: teamInc, $set: { 'stats.lastUpdated': new Date() } };
+            await Team.findByIdAndUpdate(teamObjectId, teamPayload);
+        }
 
         return NextResponse.json(
             {
