@@ -40,6 +40,16 @@ async function verifyAdmin(req: NextRequest) {
   return decoded;
 }
 
+/** Compute league status from start/end dates: pending → active (at start), active → completed (after end). */
+function getLeagueStatusFromDates(startDate: Date, endDate: Date): "pending" | "active" | "completed" {
+  const now = new Date();
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (end.getTime() <= now.getTime()) return "completed";
+  if (start.getTime() <= now.getTime()) return "active";
+  return "pending";
+}
+
 /**
  * Create league (only superadmin can create)
  * POST /api/league
@@ -106,8 +116,8 @@ export async function createLeague(req: NextRequest) {
     }
 
     // Validate status enum
-    if (status && !["active", "pending"].includes(String(status))) {
-      return NextResponse.json({ error: "Status must be either 'active' or 'pending'" }, { status: 400 });
+    if (status && !["active", "pending", "completed"].includes(String(status))) {
+      return NextResponse.json({ error: "Status must be 'active', 'pending', or 'completed'" }, { status: 400 });
     }
 
     // Validate and process referees array if provided
@@ -290,7 +300,7 @@ export async function getAllLeagues(req: NextRequest) {
     let query: any = {};
 
     if (status) {
-      if (!["active", "pending"].includes(status)) {
+      if (!["active", "pending", "completed"].includes(status)) {
         return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
       }
       query.status = status;
@@ -303,6 +313,17 @@ export async function getAllLeagues(req: NextRequest) {
       query.format = format;
     }
 
+    // Sync stored status with dates: pending→active when startDate reached, active→completed when endDate passed
+    const now = new Date();
+    await League.updateMany(
+      { status: "pending", startDate: { $lte: now } },
+      { $set: { status: "active" } }
+    );
+    await League.updateMany(
+      { status: "active", endDate: { $lt: now } },
+      { $set: { status: "completed" } }
+    );
+
     const leagues = await League.find(query)
       .populate("referees", "firstName lastName email role")
       .populate("statKeepers", "firstName lastName email role")
@@ -310,15 +331,10 @@ export async function getAllLeagues(req: NextRequest) {
       .sort({ createdAt: -1 })
       .exec();
 
-    // Automatically set status based on start date
-    const currentDate = new Date();
+    // Set response status from dates (pending until start, active until end, then completed)
     const leaguesWithStatus = leagues.map((league: any) => {
       const leagueObj = league.toObject();
-      const startDate = new Date(leagueObj.startDate);
-
-      // If start date has passed, set to active, otherwise pending
-      leagueObj.status = startDate <= currentDate ? "active" : "pending";
-
+      leagueObj.status = getLeagueStatusFromDates(leagueObj.startDate, leagueObj.endDate);
       return leagueObj;
     });
 
@@ -358,13 +374,13 @@ export async function getLeague(req: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: "League not found" }, { status: 404 });
     }
 
-    // Automatically set status based on start date
     const leagueObj = (league as any).toObject();
-    const currentDate = new Date();
-    const startDate = new Date(leagueObj.startDate);
-
-    // If start date has passed, set to active, otherwise pending
-    leagueObj.status = startDate <= currentDate ? "active" : "pending";
+    const effectiveStatus = getLeagueStatusFromDates(leagueObj.startDate, leagueObj.endDate);
+    if (leagueObj.status !== effectiveStatus) {
+      (league as any).status = effectiveStatus;
+      await (league as any).save();
+    }
+    leagueObj.status = effectiveStatus;
 
     return NextResponse.json(
       {
@@ -488,8 +504,8 @@ export async function updateLeague(req: NextRequest, { params }: { params: { id:
     // They can only be added/removed through the invitation accept/reject flow
 
     if (status !== undefined && status != null) {
-      if (!["active", "pending"].includes(String(status))) {
-        return NextResponse.json({ error: "Status must be either 'active' or 'pending'" }, { status: 400 });
+      if (!["active", "pending", "completed"].includes(String(status))) {
+        return NextResponse.json({ error: "Status must be 'active', 'pending', or 'completed'" }, { status: 400 });
       }
       (league as any).status = status;
     }

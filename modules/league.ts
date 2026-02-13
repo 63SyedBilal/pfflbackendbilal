@@ -68,7 +68,7 @@ export const LeagueSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["active", "pending"],
+      enum: ["active", "pending", "completed"],
       default: "pending",
     },
   },
