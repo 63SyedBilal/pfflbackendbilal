@@ -172,6 +172,18 @@ export async function createMatch(req: NextRequest) {
       );
     }
 
+    // SECURITY: Block any attempt to set playerStats/teamStats on creation
+    // Stats can ONLY be set via POST /api/stats by stat-keeper role
+    if ((typeof teamA === 'object' && (teamA.playerStats !== undefined || teamA.teamStats !== undefined)) ||
+        (typeof teamB === 'object' && (teamB.playerStats !== undefined || teamB.teamStats !== undefined))) {
+      return NextResponse.json(
+        { 
+          error: "Cannot set playerStats or teamStats on match creation. Use POST /api/stats endpoint (stat-keeper role only)" 
+        },
+        { status: 403 }
+      );
+    }
+
     // Build team match data
     // Support both object format (with players, playerActions, etc.) and simple format
     const teamAData: any = {
@@ -179,9 +191,9 @@ export async function createMatch(req: NextRequest) {
       side: teamASide,
       players: (typeof teamA === 'object' && teamA.players) ? teamA.players : [],
       playerActions: (typeof teamA === 'object' && teamA.playerActions) ? teamA.playerActions : [],
-      playerStats: (typeof teamA === 'object' && teamA.playerStats) ? teamA.playerStats : [],
-      teamStats: (typeof teamA === 'object' && teamA.teamStats) ? teamA.teamStats : {},
-      score: (typeof teamA === 'object' && teamA.score !== undefined) ? teamA.score : 0,
+      playerStats: [],  // Always init empty; populated only via POST /api/stats
+      teamStats: {},    // Always init empty; auto-calculated by stat keeper
+      score: 0,         // Always start with 0
       result: null
     };
 
@@ -190,9 +202,9 @@ export async function createMatch(req: NextRequest) {
       side: teamBSide,
       players: (typeof teamB === 'object' && teamB.players) ? teamB.players : [],
       playerActions: (typeof teamB === 'object' && teamB.playerActions) ? teamB.playerActions : [],
-      playerStats: (typeof teamB === 'object' && teamB.playerStats) ? teamB.playerStats : [],
-      teamStats: (typeof teamB === 'object' && teamB.teamStats) ? teamB.teamStats : {},
-      score: (typeof teamB === 'object' && teamB.score !== undefined) ? teamB.score : 0,
+      playerStats: [],  // Always init empty; populated only via POST /api/stats
+      teamStats: {},    // Always init empty; auto-calculated by stat keeper
+      score: 0,         // Always start with 0
       result: null
     };
 
@@ -535,11 +547,12 @@ export async function getMatch(req: NextRequest, { params }: { params: { id: str
 /**
  * Update match
  * PUT /api/match/:id
+ * NOTE: playerStats and teamStats can ONLY be updated via /api/stats endpoint by stat-keeper role
  */
 export async function updateMatch(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await connectDB();
-    await verifyUser(req);
+    const decoded = await verifyUser(req);
 
     const { id } = params;
     const matchId = toObjectId(id);
@@ -565,6 +578,18 @@ export async function updateMatch(req: NextRequest, { params }: { params: { id: 
       timesSwitched,
       completedAt,
     } = await req.json() as any;
+
+    // SECURITY: Block direct playerStats/teamStats updates via this endpoint
+    // These fields can ONLY be updated via /api/stats by stat-keeper role
+    if ((teamA?.playerStats !== undefined) || (teamA?.teamStats !== undefined) ||
+        (teamB?.playerStats !== undefined) || (teamB?.teamStats !== undefined)) {
+      return NextResponse.json(
+        { 
+          error: "Cannot update playerStats or teamStats via this endpoint. Use POST /api/stats endpoint (stat-keeper role only)" 
+        },
+        { status: 403 }
+      );
+    }
 
     // Get league to validate date range
     const league = await League.findById((match as any).leagueId);
@@ -630,6 +655,7 @@ export async function updateMatch(req: NextRequest, { params }: { params: { id: 
           { status: 400 }
         );
       }
+      const wasAlreadyCompleted = (match as any).status === "completed";
       (match as any).status = "completed";
 
       // Set completedAt when status is completed
@@ -682,6 +708,31 @@ export async function updateMatch(req: NextRequest, { params }: { params: { id: 
         console.error("Error updating leaderboard from match:", leaderboardError);
         // Don't fail match update if leaderboard update fails
       }
+
+      // Update User.stats and Team.stats: gamesWon5v5 / gamesWon7v7 for winning team (only on first completion)
+      if (!wasAlreadyCompleted && (match as any).teamA.win !== null && (match as any).teamB.win !== null) {
+        const formatStr = String((match as any).format || "").trim().toLowerCase();
+        const is5v5 = formatStr === "5v5";
+        const gameWonField = is5v5 ? "stats.gamesWon5v5" : "stats.gamesWon7v7";
+        const winningTeamId = (match as any).gameWinnerTeam;
+        const winningTeam = (match as any).teamA.win === true ? (match as any).teamA : (match as any).teamB;
+        const players = winningTeam.players || [];
+        const updatePayload = { $inc: { [gameWonField]: 1 }, $set: { "stats.lastUpdated": new Date() } };
+        try {
+          for (const p of players) {
+            const pid = p.playerId || p;
+            if (!pid) continue;
+            const userId = pid instanceof mongoose.Types.ObjectId ? pid : new mongoose.Types.ObjectId(String(pid));
+            await User.updateOne({ _id: userId }, updatePayload);
+          }
+          if (winningTeamId) {
+            const teamId = winningTeamId instanceof mongoose.Types.ObjectId ? winningTeamId : new mongoose.Types.ObjectId(String(winningTeamId));
+            await Team.updateOne({ _id: teamId }, updatePayload);
+          }
+        } catch (userUpdateErr: any) {
+          console.error("Error updating user/team games won:", userUpdateErr);
+        }
+      }
     }
 
     if (gameWinnerTeam !== undefined) {
@@ -724,24 +775,6 @@ export async function updateMatch(req: NextRequest, { params }: { params: { id: 
             isActive: p.isActive !== undefined ? p.isActive : false
           }));
         }
-        if (teamA.playerStats !== undefined) {
-          (match as any).teamA.playerStats = teamA.playerStats.map((ps: any) => ({
-            playerId: toObjectId(ps.playerId),
-            catches: ps.catches || 0,
-            catchYards: ps.catchYards || 0,
-            rushes: ps.rushes || 0,
-            rushYards: ps.rushYards || 0,
-            touchdowns: ps.touchdowns || 0,
-            extraPoints: ps.extraPoints || 0,
-            defensiveTDs: ps.defensiveTDs || 0,
-            safeties: ps.safeties || 0,
-            flags: ps.flags || 0,
-            totalPoints: ps.totalPoints || 0
-          }));
-        }
-        if (teamA.teamStats !== undefined) {
-          (match as any).teamA.teamStats = teamA.teamStats;
-        }
         if (teamA.score !== undefined) {
           (match as any).teamA.score = teamA.score;
         }
@@ -777,24 +810,6 @@ export async function updateMatch(req: NextRequest, { params }: { params: { id: 
             playerId: toObjectId(p.playerId),
             isActive: p.isActive !== undefined ? p.isActive : false
           }));
-        }
-        if (teamB.playerStats !== undefined) {
-          (match as any).teamB.playerStats = teamB.playerStats.map((ps: any) => ({
-            playerId: toObjectId(ps.playerId),
-            catches: ps.catches || 0,
-            catchYards: ps.catchYards || 0,
-            rushes: ps.rushes || 0,
-            rushYards: ps.rushYards || 0,
-            touchdowns: ps.touchdowns || 0,
-            extraPoints: ps.extraPoints || 0,
-            defensiveTDs: ps.defensiveTDs || 0,
-            safeties: ps.safeties || 0,
-            flags: ps.flags || 0,
-            totalPoints: ps.totalPoints || 0
-          }));
-        }
-        if (teamB.teamStats !== undefined) {
-          (match as any).teamB.teamStats = teamB.teamStats;
         }
         if (teamB.score !== undefined) {
           (match as any).teamB.score = teamB.score;
@@ -864,9 +879,9 @@ const ACTION_SCORES: { [key: string]: number } = {
   "Touchdown": 6,
   "Extra Point from 5-yard line": 1,
   "Extra Point from 12-yard line": 2,
-  "Extra Point from 20-yard line": 2,
+  "Extra Point from 20-yard line": 3,
   "Defensive Touchdown": 6,
-  "Extra Point Return only": 4,
+  "Extra Point Return only": 2,
   "Safety": 2
 };
 
@@ -955,57 +970,9 @@ export async function addGameAction(req: NextRequest, { params }: { params: { id
     // Update team score
     team.score = (team.score || 0) + actionScore;
 
-    // Update player stats
-    let playerStat = team.playerStats.find((ps: any) =>
-      ps.playerId.toString() === playerId
-    );
-
-    if (!playerStat) {
-      playerStat = {
-        playerId: playerObjectId,
-        catches: 0,
-        catchYards: 0,
-        rushes: 0,
-        rushYards: 0,
-        touchdowns: 0,
-        extraPoints: 0,
-        defensiveTDs: 0,
-        safeties: 0,
-        flags: 0,
-        totalPoints: 0
-      };
-      team.playerStats.push(playerStat);
-    }
-
-    // Update stats based on action type
-    if (actionType === "Touchdown") {
-      playerStat.touchdowns = (playerStat.touchdowns || 0) + 1;
-      playerStat.totalPoints = (playerStat.totalPoints || 0) + actionScore;
-    } else if (actionType === "Defensive Touchdown") {
-      playerStat.defensiveTDs = (playerStat.defensiveTDs || 0) + 1;
-      playerStat.totalPoints = (playerStat.totalPoints || 0) + actionScore;
-    } else if (actionType.includes("Extra Point")) {
-      playerStat.extraPoints = (playerStat.extraPoints || 0) + 1;
-      playerStat.totalPoints = (playerStat.totalPoints || 0) + actionScore;
-    } else if (actionType === "Safety") {
-      playerStat.safeties = (playerStat.safeties || 0) + 1;
-      playerStat.totalPoints = (playerStat.totalPoints || 0) + actionScore;
-    }
-
-    // Update team stats
-    if (!team.teamStats) {
-      team.teamStats = {};
-    }
-
-    if (actionType === "Touchdown") {
-      team.teamStats.touchdowns = (team.teamStats.touchdowns || 0) + 1;
-    } else if (actionType === "Defensive Touchdown") {
-      team.teamStats.defensiveTDs = (team.teamStats.defensiveTDs || 0) + 1;
-    } else if (actionType.includes("Extra Point")) {
-      team.teamStats.extraPoints = (team.teamStats.extraPoints || 0) + 1;
-    } else if (actionType === "Safety") {
-      team.teamStats.safeties = (team.teamStats.safeties || 0) + 1;
-    }
+    // NOTE: playerStats and teamStats are NOT updated here.
+    // Only Stat Keeper (via POST /api/stats) updates playerStats and teamStats.
+    // Referee only records actions and updates score.
 
     // Verify User to get name and position for the immutable action record
     const playerUser = await User.findById(playerObjectId);
@@ -1030,20 +997,13 @@ export async function addGameAction(req: NextRequest, { params }: { params: { id
     (match as any).actions.push(timelineAction);
     (match as any).markModified("actions");
 
-    // Use explicit path updates to ensure separation
+    // Score was already updated once above via team.score; only mark path modified
     const scorePath = isTeamA ? 'teamA.score' : 'teamB.score';
-    const currentScore = (match as any).get(scorePath) || 0;
-    const newScore = currentScore + actionScore;
-    (match as any).set(scorePath, newScore);
+    const previousScore = (team.score || 0) - actionScore;
+    console.log(`[DEBUG] Action added for Team ${isTeamA ? 'A' : 'B'} (${teamId}). Old Score: ${previousScore}, New Score: ${team.score}`);
 
-    team.teamStats.totalPoints = (team.teamStats.totalPoints || 0) + actionScore;
-
-    console.log(`[DEBUG] Action added for Team ${isTeamA ? 'A' : 'B'} (${teamId}). Old Score: ${currentScore}, New Score: ${newScore}`);
-
-    // Mark as modified
+    // Mark as modified (only playerActions and score)
     (match as any).markModified(isTeamA ? "teamA.playerActions" : "teamB.playerActions");
-    (match as any).markModified(isTeamA ? "teamA.playerStats" : "teamB.playerStats");
-    (match as any).markModified(isTeamA ? "teamA.teamStats" : "teamB.teamStats");
     (match as any).markModified(scorePath);
 
     // Set status to "continue" if it's still "upcoming" (first action)
@@ -1086,13 +1046,8 @@ export async function addGameAction(req: NextRequest, { params }: { params: { id
         );
       }
 
-      // Update User (Player Stats) - Increment totalPoints
-      if (playerObjectId) {
-        await User.findByIdAndUpdate(
-          playerObjectId,
-          { $inc: { totalPoints: actionScore } }
-        );
-      }
+      // Note: User.totalPoints will be updated by Stat Keeper via POST /api/stats
+      // Referee only records actions, Stat Keeper validates and finalizes all stats
     } catch (statsError) {
       console.error("Error updating global stats:", statsError);
       // Don't fail the request if stats update fails

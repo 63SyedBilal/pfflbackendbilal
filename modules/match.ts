@@ -10,47 +10,68 @@ const PlayerStatsSchema = new mongoose.Schema(
       required: true
     },
 
+    // Offensive
     catches: { type: Number, default: 0 },
     catchYards: { type: Number, default: 0 },
-
     rushes: { type: Number, default: 0 },
     rushYards: { type: Number, default: 0 },
-
+    passAttempts: { type: Number, default: 0 },
+    passYards: { type: Number, default: 0 },
+    completions: { type: Number, default: 0 },
     touchdowns: { type: Number, default: 0 },
-    extraPoints: { type: Number, default: 0 },
+    conversionPoints: { type: Number, default: 0 },
 
-    defensiveTDs: { type: Number, default: 0 },
+    // Defensive / misc
     safeties: { type: Number, default: 0 },
-
-    flags: { type: Number, default: 0 },
-
-    totalPoints: { type: Number, default: 0 }
+    flagPull: { type: Number, default: 0 },
+    sack: { type: Number, default: 0 },
+    interceptions: { type: Number, default: 0 }
   },
   { _id: false }
 );
 
 /* ================= TEAM STATS (GAME SUMMARY) ================= */
+/* Per-match only. No matchesPlayed, leaguesPlayed, gamesWon5v5/7v7, leaguesWon5v5/7v7 here;
+   those live only on Team.stats (overall). */
 
 const TeamStatsSchema = new mongoose.Schema(
   {
+    // Offensive aggregates (this match only)
     catches: { type: Number, default: 0 },
     catchYards: { type: Number, default: 0 },
-
     rushes: { type: Number, default: 0 },
     rushYards: { type: Number, default: 0 },
-
+    passAttempts: { type: Number, default: 0 },
+    passYards: { type: Number, default: 0 },
+    completions: { type: Number, default: 0 },
     touchdowns: { type: Number, default: 0 },
-    extraPoints: { type: Number, default: 0 },
+    conversionPoints: { type: Number, default: 0 },
 
-    defensiveTDs: { type: Number, default: 0 },
+    // Defensive / misc aggregates
     safeties: { type: Number, default: 0 },
-
-    flags: { type: Number, default: 0 },
-
-    totalPoints: { type: Number, default: 0 }
+    flagPull: { type: Number, default: 0 },
+    sack: { type: Number, default: 0 },
+    interceptions: { type: Number, default: 0 }
   },
   { _id: false }
 );
+
+// Virtual aliases for UI-friendly fields
+PlayerStatsSchema.virtual("INT")
+  .get(function (this: any) {
+    return this.interceptions || 0;
+  })
+  .set(function (this: any, val: number) {
+    this.interceptions = val;
+  });
+
+TeamStatsSchema.virtual("INT")
+  .get(function (this: any) {
+    return this.interceptions || 0;
+  })
+  .set(function (this: any, val: number) {
+    this.interceptions = val;
+  });
 
 /* ================= TEAM MATCH ================= */
 
@@ -116,6 +137,7 @@ const TeamMatchSchema = new mongoose.Schema(
       type: TeamStatsSchema,
       default: () => ({})
     },
+    /* score and win are for this match only. Overall games/leagues won and played are on Team.stats. */
 
     score: {
       type: Number,

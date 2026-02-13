@@ -19,6 +19,26 @@ async function verifyUser(req: NextRequest) {
   return decoded;
 }
 
+/** Ensure team.stats always includes match/league counts for API responses */
+function normalizeTeamStats(stats: any): any {
+  if (!stats || typeof stats !== "object") return {};
+  return {
+    ...stats,
+    matchesPlayed: stats.matchesPlayed ?? 0,
+    leaguesPlayed: stats.leaguesPlayed ?? 0,
+    gamesWon5v5: stats.gamesWon5v5 ?? 0,
+    gamesWon7v7: stats.gamesWon7v7 ?? 0,
+    leaguesWon5v5: stats.leaguesWon5v5 ?? 0,
+    leaguesWon7v7: stats.leaguesWon7v7 ?? 0,
+  };
+}
+
+function teamToResponse(team: any) {
+  const obj = team && typeof team.toObject === "function" ? team.toObject() : team;
+  if (!obj) return obj;
+  return { ...obj, stats: normalizeTeamStats(obj.stats) };
+}
+
 /**
  * Create team (only captains can create)
  * POST /api/team
@@ -184,7 +204,7 @@ export async function getTeam(req: NextRequest, { params }: { params: { id: stri
     return NextResponse.json(
       {
         message: "Team retrieved successfully",
-        data: team,
+        data: teamToResponse(team),
       },
       { status: 200 }
     );
@@ -220,7 +240,7 @@ export async function getTeamByCode(req: NextRequest, { params }: { params: { co
     return NextResponse.json(
       {
         message: "Team retrieved successfully",
-        data: team,
+        data: teamToResponse(team),
       },
       { status: 200 }
     );
@@ -277,7 +297,7 @@ export async function getAllTeams(req: NextRequest) {
       return NextResponse.json(
         {
           message: team ? "Team retrieved successfully" : "Team not found",
-          data: team,
+          data: teamToResponse(team),
         },
         { status: team ? 200 : 404 }
       );
@@ -286,7 +306,7 @@ export async function getAllTeams(req: NextRequest) {
     return NextResponse.json(
       {
         message: "Teams retrieved successfully",
-        data: teams,
+        data: teams.map(teamToResponse),
       },
       { status: 200 }
     );

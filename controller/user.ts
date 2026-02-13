@@ -19,6 +19,20 @@ async function verifyUser(req: NextRequest) {
   return decoded;
 }
 
+/** Ensure stats object always includes match/league counts for API responses */
+function normalizeUserStats(stats: any): any {
+  if (!stats || typeof stats !== "object") return {};
+  return {
+    ...stats,
+    matchesPlayed: stats.matchesPlayed ?? 0,
+    leaguesPlayed: stats.leaguesPlayed ?? 0,
+    gamesWon5v5: stats.gamesWon5v5 ?? 0,
+    gamesWon7v7: stats.gamesWon7v7 ?? 0,
+    leaguesWon5v5: stats.leaguesWon5v5 ?? 0,
+    leaguesWon7v7: stats.leaguesWon7v7 ?? 0,
+  };
+}
+
 /**
  * Create user
  * POST /api/user
@@ -48,6 +62,12 @@ export async function createUser(req: NextRequest) {
     }
 
     // Build user object with defaults
+    const userRole = role || "free-agent";
+    
+    // Only initialize stats for player and captain roles (not for stat-keeper, referee, superadmin, free-agent)
+    const playerRoles = ["player", "captain"];
+    const shouldInitStats = playerRoles.includes(userRole);
+
     const userData: {
       email: string;
       role: string;
@@ -55,12 +75,40 @@ export async function createUser(req: NextRequest) {
       lastName: string;
       phone?: string;
       password?: string;
+      stats?: any;
     } = {
       email: email.toLowerCase(),
-      role: role || "free-agent",
+      role: userRole,
       firstName: firstName || "",
       lastName: lastName || "",
     };
+
+    // Only initialize stats for player role
+    if (shouldInitStats) {
+      userData.stats = {
+        catches: 0,
+        catchYards: 0,
+        rushes: 0,
+        rushYards: 0,
+        passAttempts: 0,
+        passYards: 0,
+        completions: 0,
+        touchdowns: 0,
+        conversionPoints: 0,
+        safeties: 0,
+        flagPull: 0,
+        sack: 0,
+        interceptions: 0,
+        totalPoints: 0,
+        matchesPlayed: 0,
+        leaguesPlayed: 0,
+        gamesWon5v5: 0,
+        gamesWon7v7: 0,
+        leaguesWon5v5: 0,
+        leaguesWon7v7: 0,
+        lastUpdated: new Date()
+      };
+    }
 
     // Only set phone if provided and not empty
     if (phone && phone.trim() !== "") {
@@ -87,7 +135,9 @@ export async function createUser(req: NextRequest) {
           lastName: user.lastName,
           email: user.email,
           phone: user.phone,
-          role: user.role
+          role: user.role,
+          totalPoints: user.totalPoints,
+          stats: normalizeUserStats((user as any).stats)
         },
         token,
       },
@@ -131,7 +181,9 @@ export async function getAllUsers(req: NextRequest) {
           role: user.role,
           profileImage: user.profileImage,
           position: user.position,
-          jerseyNumber: user.jerseyNumber
+          jerseyNumber: user.jerseyNumber,
+          totalPoints: user.totalPoints,
+          stats: normalizeUserStats((user as any).stats)
         })),
       },
       { status: 200 }
@@ -177,7 +229,9 @@ export async function getUser(req: NextRequest, { params }: { params: { id: stri
           profileImage: user.profileImage,
           position: user.position,
           jerseyNumber: user.jerseyNumber,
-          profileCompleted: user.profileCompleted
+          profileCompleted: user.profileCompleted,
+          totalPoints: user.totalPoints,
+          stats: normalizeUserStats((user as any).stats)
         },
       },
       { status: 200 }
