@@ -11,6 +11,8 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // Avoid 404s when host redirects /api/stats to /api/stats/ (or vice versa)
+  trailingSlash: false,
   // Fix Turbopack root directory issue
   turbopack: {
     root: __dirname,
