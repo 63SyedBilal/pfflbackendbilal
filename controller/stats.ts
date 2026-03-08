@@ -397,8 +397,8 @@ export async function getMatchStats(req: NextRequest) {
         }
         verifyAccessToken(token);
 
-        const { searchParams } = new URL(req.url);
-        const matchId = searchParams.get("matchId");
+        // Use nextUrl so it works behind proxy (req.url can be relative in production)
+        const matchId = req.nextUrl?.searchParams?.get("matchId") ?? new URL(req.url, "http://localhost").searchParams.get("matchId");
 
         if (!matchId) {
             return NextResponse.json({ error: "Match ID is required" }, { status: 400 });

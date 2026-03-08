@@ -30,7 +30,7 @@ jobs:
             npm install --save-dev typescript @types/react @types/node
             npm run build
             pm2 delete pffl-backend || true
-            pm2 start "npm run start" --name pffl-backend
+            pm2 start .next/standalone/server.js --name pffl-backend
             pm2 save
 
   deploy-prod:
