@@ -3,9 +3,10 @@ import { removePlayer } from "@/controller/team";
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string; playerId: string } }
+  { params }: { params: Promise<{ id: string; playerId: string }> | { id: string; playerId: string } }
 ) {
-  return removePlayer(req, { params });
+  const resolvedParams = await Promise.resolve(params);
+  return removePlayer(req, { params: resolvedParams });
 }
 
 
