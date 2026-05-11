@@ -101,7 +101,7 @@ export async function submitStats(req: NextRequest) {
 }
 
 /**
- * Update player stats directly (for Stat Keeper only)
+ * Update player stats directly (stat keeper or superadmin)
  * POST /api/stats
  */
 export async function updatePlayerStats(req: NextRequest) {
@@ -115,9 +115,12 @@ export async function updatePlayerStats(req: NextRequest) {
         }
         const decoded = verifyAccessToken(token); // Verify token validity
         
-        // Only Stat Keeper can update player stats
-        if (decoded.role !== "stat-keeper") {
-            return NextResponse.json({ error: "Only Stat Keeper can update player stats" }, { status: 403 });
+        // Stat keeper or superadmin can update match player stats (team match totals recalc from players)
+        if (decoded.role !== "stat-keeper" && decoded.role !== "superadmin") {
+            return NextResponse.json(
+                { error: "Only Stat Keeper or Superadmin can update player stats" },
+                { status: 403 }
+            );
         }
 
         const body = await req.json() as any;
