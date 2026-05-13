@@ -41,6 +41,46 @@ async function verifyUser(req: NextRequest) {
   return decoded;
 }
 
+/** Stable user id string from JWT (login uses `userId`). */
+function getTokenUserId(decoded: { userId?: string; id?: string; _id?: string }): string {
+  const id = decoded?.userId ?? (decoded as any)?.id ?? (decoded as any)?._id;
+  return id != null ? String(id) : "";
+}
+
+/**
+ * Match updates: superadmin always; otherwise only the user assigned as this match's referee.
+ * If no referee is assigned yet, only superadmin may update (e.g. to assign one).
+ */
+function assertSuperadminOrAssignedReferee(
+  decoded: { role?: string; userId?: string; id?: string; _id?: string },
+  match: { refereeId?: mongoose.Types.ObjectId | null }
+): NextResponse | null {
+  if (decoded.role === "superadmin") return null;
+
+  const callerId = getTokenUserId(decoded);
+  if (!callerId) {
+    return NextResponse.json({ error: "User ID not found in token" }, { status: 401 });
+  }
+
+  const refId = (match as any)?.refereeId;
+  if (!refId) {
+    return NextResponse.json(
+      {
+        error:
+          "Only superadmin can update this match until a referee is assigned. Assign refereeId first (superadmin).",
+      },
+      { status: 403 }
+    );
+  }
+
+  if (String(refId) === callerId) return null;
+
+  return NextResponse.json(
+    { error: "Only the assigned referee or superadmin can update this match" },
+    { status: 403 }
+  );
+}
+
 /**
  * Helper to convert string ID to ObjectId
  */
@@ -54,6 +94,7 @@ function toObjectId(id: string): mongoose.Types.ObjectId {
 /**
  * Create a new match
  * POST /api/match
+ * Auth: superadmin only.
  */
 export async function createMatch(req: NextRequest) {
   try {
@@ -61,8 +102,15 @@ export async function createMatch(req: NextRequest) {
 
     const decoded = await verifyUser(req);
 
+    if (decoded.role !== "superadmin") {
+      return NextResponse.json(
+        { error: "Only superadmin can create matches" },
+        { status: 403 }
+      );
+    }
+
     // Get user ID from token (superadmin who creates the match)
-    const userId = (decoded as any).id || (decoded as any)._id || (decoded as any).userId;
+    const userId = getTokenUserId(decoded as any);
     if (!userId) {
       return NextResponse.json(
         { error: "User ID not found in token" },
@@ -547,6 +595,8 @@ export async function getMatch(req: NextRequest, { params }: { params: { id: str
 /**
  * Update match
  * PUT /api/match/:id
+ * Auth: superadmin, or the user assigned as this match's referee (match.refereeId).
+ * If refereeId is not set yet, only superadmin may update (e.g. to assign a referee).
  * NOTE: playerStats and teamStats can ONLY be updated via /api/stats endpoint by stat-keeper role
  */
 export async function updateMatch(req: NextRequest, { params }: { params: { id: string } }) {
@@ -561,6 +611,9 @@ export async function updateMatch(req: NextRequest, { params }: { params: { id: 
     if (!match) {
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
+
+    const authDenied = assertSuperadminOrAssignedReferee(decoded as any, match as any);
+    if (authDenied) return authDenied;
 
     const {
       format,

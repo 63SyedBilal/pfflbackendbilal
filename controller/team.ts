@@ -336,8 +336,8 @@ export async function updateTeam(req: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    // Verify user is the captain of this team
-    if (team.captain.toString() !== decoded.userId) {
+    // Verify user is the captain of this team or a superadmin
+    if (team.captain.toString() !== decoded.userId && decoded.role !== "superadmin") {
       return NextResponse.json({ error: "Unauthorized to update this team" }, { status: 403 });
     }
 
@@ -457,8 +457,8 @@ export async function deleteTeam(req: NextRequest, { params }: { params: { id: s
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    // Verify user is the captain of this team
-    if (team.captain.toString() !== decoded.userId) {
+    // Verify user is the captain of this team or a superadmin
+    if (team.captain.toString() !== decoded.userId && decoded.role !== "superadmin") {
       return NextResponse.json({ error: "Unauthorized to delete this team" }, { status: 403 });
     }
 
@@ -500,8 +500,8 @@ export async function addPlayer(req: NextRequest, { params }: { params: { id: st
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    // Verify user is the captain of this team
-    if (team.captain.toString() !== decoded.userId) {
+    // Verify user is the captain of this team or a superadmin
+    if (team.captain.toString() !== decoded.userId && decoded.role !== "superadmin") {
       return NextResponse.json({ error: "Unauthorized to modify this team" }, { status: 403 });
     }
 
@@ -562,8 +562,8 @@ export async function removePlayer(req: NextRequest, { params }: { params: { id:
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    // Verify user is the captain of this team
-    if (team.captain.toString() !== decoded.userId) {
+    // Verify user is the captain of this team or a superadmin
+    if (team.captain.toString() !== decoded.userId && decoded.role !== "superadmin") {
       return NextResponse.json({ error: "Unauthorized to modify this team" }, { status: 403 });
     }
 
@@ -626,8 +626,8 @@ export async function uploadTeamImage(req: NextRequest, { params }: { params: { 
       return NextResponse.json({ error: "Team not found" }, { status: 404 });
     }
 
-    // Verify user is the captain
-    if (team.captain.toString() !== decoded.userId) {
+    // Verify user is the captain or a superadmin
+    if (team.captain.toString() !== decoded.userId && decoded.role !== "superadmin") {
       return NextResponse.json({ error: "Unauthorized. Only captain can update team image" }, { status: 403 });
     }
 

@@ -676,6 +676,216 @@ export async function removeTeamFromLeague(req: NextRequest, { params }: { param
 }
 
 /**
+ * Add referee to league directly
+ * POST /api/league/:id/referees
+ * Body: { refereeId: string }
+ */
+export async function addRefereeToLeague(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await connectDB();
+    await verifyAdmin(req);
+
+    const { id } = params;
+    const leagueId = toObjectId(id);
+    const { refereeId } = (await req.json()) as { refereeId?: string };
+
+    if (!refereeId) {
+      return NextResponse.json({ error: "Referee ID is required" }, { status: 400 });
+    }
+
+    const league = await League.findById(leagueId);
+    if (!league) {
+      return NextResponse.json({ error: "League not found" }, { status: 404 });
+    }
+
+    const referee = await User.findById(refereeId);
+    if (!referee) {
+      return NextResponse.json({ error: "Referee not found" }, { status: 404 });
+    }
+    if (referee.role !== "referee") {
+      return NextResponse.json({ error: "User is not a referee" }, { status: 400 });
+    }
+
+    const referees = (league as any).referees || [];
+    if (referees.some((r: any) => r.toString() === refereeId)) {
+      return NextResponse.json({ error: "Referee already in league" }, { status: 409 });
+    }
+
+    referees.push(refereeId);
+    (league as any).referees = referees;
+    await league.save();
+
+    const populatedLeague = await League.findById(leagueId)
+      .populate("referees", "firstName lastName email role")
+      .populate("statKeepers", "firstName lastName email role")
+      .populate("teams", "teamName enterCode location skillLevel");
+
+    return NextResponse.json(
+      {
+        message: "Referee added to league successfully",
+        data: populatedLeague,
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    if (error.message === "No token provided" || error.message === "Invalid token" || error.message === "Unauthorized") {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    return NextResponse.json({ error: error.message || "Failed to add referee to league" }, { status: 500 });
+  }
+}
+
+/**
+ * Remove referee from league directly
+ * DELETE /api/league/:id/referees/:refereeId
+ */
+export async function removeRefereeFromLeague(req: NextRequest, { params }: { params: { id: string; refereeId: string } }) {
+  try {
+    await connectDB();
+    await verifyAdmin(req);
+
+    const { id, refereeId } = params;
+    const leagueId = toObjectId(id);
+
+    const league = await League.findById(leagueId);
+    if (!league) {
+      return NextResponse.json({ error: "League not found" }, { status: 404 });
+    }
+
+    const referees = (league as any).referees || [];
+    if (!referees.some((r: any) => r.toString() === refereeId)) {
+      return NextResponse.json({ error: "Referee not in league" }, { status: 404 });
+    }
+
+    (league as any).referees = referees.filter((r: any) => r.toString() !== refereeId);
+    await league.save();
+
+    const populatedLeague = await League.findById(leagueId)
+      .populate("referees", "firstName lastName email role")
+      .populate("statKeepers", "firstName lastName email role")
+      .populate("teams", "teamName enterCode location skillLevel");
+
+    return NextResponse.json(
+      {
+        message: "Referee removed from league successfully",
+        data: populatedLeague,
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    if (error.message === "No token provided" || error.message === "Invalid token" || error.message === "Unauthorized") {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    return NextResponse.json({ error: error.message || "Failed to remove referee from league" }, { status: 500 });
+  }
+}
+
+/**
+ * Add stat keeper to league directly
+ * POST /api/league/:id/statkeepers
+ * Body: { statKeeperId: string }
+ */
+export async function addStatKeeperToLeague(req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    await connectDB();
+    await verifyAdmin(req);
+
+    const { id } = params;
+    const leagueId = toObjectId(id);
+    const { statKeeperId } = (await req.json()) as { statKeeperId?: string };
+
+    if (!statKeeperId) {
+      return NextResponse.json({ error: "Stat keeper ID is required" }, { status: 400 });
+    }
+
+    const league = await League.findById(leagueId);
+    if (!league) {
+      return NextResponse.json({ error: "League not found" }, { status: 404 });
+    }
+
+    const statKeeper = await User.findById(statKeeperId);
+    if (!statKeeper) {
+      return NextResponse.json({ error: "Stat keeper not found" }, { status: 404 });
+    }
+    if (statKeeper.role !== "stat-keeper") {
+      return NextResponse.json({ error: "User is not a stat keeper" }, { status: 400 });
+    }
+
+    const statKeepers = (league as any).statKeepers || [];
+    if (statKeepers.some((sk: any) => sk.toString() === statKeeperId)) {
+      return NextResponse.json({ error: "Stat keeper already in league" }, { status: 409 });
+    }
+
+    statKeepers.push(statKeeperId);
+    (league as any).statKeepers = statKeepers;
+    await league.save();
+
+    const populatedLeague = await League.findById(leagueId)
+      .populate("referees", "firstName lastName email role")
+      .populate("statKeepers", "firstName lastName email role")
+      .populate("teams", "teamName enterCode location skillLevel");
+
+    return NextResponse.json(
+      {
+        message: "Stat keeper added to league successfully",
+        data: populatedLeague,
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    if (error.message === "No token provided" || error.message === "Invalid token" || error.message === "Unauthorized") {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    return NextResponse.json({ error: error.message || "Failed to add stat keeper to league" }, { status: 500 });
+  }
+}
+
+/**
+ * Remove stat keeper from league directly
+ * DELETE /api/league/:id/statkeepers/:statKeeperId
+ */
+export async function removeStatKeeperFromLeague(req: NextRequest, { params }: { params: { id: string; statKeeperId: string } }) {
+  try {
+    await connectDB();
+    await verifyAdmin(req);
+
+    const { id, statKeeperId } = params;
+    const leagueId = toObjectId(id);
+
+    const league = await League.findById(leagueId);
+    if (!league) {
+      return NextResponse.json({ error: "League not found" }, { status: 404 });
+    }
+
+    const statKeepers = (league as any).statKeepers || [];
+    if (!statKeepers.some((sk: any) => sk.toString() === statKeeperId)) {
+      return NextResponse.json({ error: "Stat keeper not in league" }, { status: 404 });
+    }
+
+    (league as any).statKeepers = statKeepers.filter((sk: any) => sk.toString() !== statKeeperId);
+    await league.save();
+
+    const populatedLeague = await League.findById(leagueId)
+      .populate("referees", "firstName lastName email role")
+      .populate("statKeepers", "firstName lastName email role")
+      .populate("teams", "teamName enterCode location skillLevel");
+
+    return NextResponse.json(
+      {
+        message: "Stat keeper removed from league successfully",
+        data: populatedLeague,
+      },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    if (error.message === "No token provided" || error.message === "Invalid token" || error.message === "Unauthorized") {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    return NextResponse.json({ error: error.message || "Failed to remove stat keeper from league" }, { status: 500 });
+  }
+}
+
+/**
  * Invite referee to league
  * POST /api/league/:id/invite-referee
  * Body: { refereeId: string }

@@ -3,8 +3,9 @@ import { removeTeamFromLeague } from "@/controller/league";
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string; teamId: string } }
+  props: { params: Promise<{ id: string; teamId: string }> }
 ) {
+  const params = await props.params;
   return removeTeamFromLeague(req, { params });
 }
 
